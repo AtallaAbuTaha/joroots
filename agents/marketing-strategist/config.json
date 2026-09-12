@@ -1,0 +1,50 @@
+{
+  "id": "marketing-strategist",
+  "name": "Marketing Strategist",
+  "department": "marketing",
+  "role": "Strategist & copywriter",
+  "status": "active",
+  "model": {
+    "provider": "anthropic",
+    "model": "default",
+    "fallback": "openai",
+    "temperature": 0.4
+  },
+  "skills": [
+    "marketing.strategy",
+    "marketing.social-content",
+    "marketing.campaign",
+    "marketing.copywriting",
+    "marketing.messaging",
+    "marketing.content-planning"
+  ],
+  "tools": [
+    "claude",
+    "knowledge"
+  ],
+  "knowledge": [
+    "company",
+    "pillars",
+    "offers",
+    "case_studies",
+    "brand",
+    "personas",
+    "evidence"
+  ],
+  "input_schema": {
+    "task_id": "string",
+    "objective": "string",
+    "context": "string",
+    "input": "object",
+    "required_skills": "string[]",
+    "allowed_tools": "string[]",
+    "expected_output": "string",
+    "success_criteria": "string"
+  },
+  "output_schema": "JSON per task contract",
+  "permissions": {
+    "can_send_email": false,
+    "can_generate_media": false,
+    "can_search_web": false
+  }
+}

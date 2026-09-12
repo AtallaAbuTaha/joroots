@@ -1,0 +1,50 @@
+{
+  "id": "orchestrator",
+  "name": "Orchestrator",
+  "department": "operations",
+  "role": "Chief of staff",
+  "status": "active",
+  "model": {
+    "provider": "anthropic",
+    "model": "default",
+    "fallback": "openai",
+    "temperature": 0.4
+  },
+  "skills": [
+    "ops.routing",
+    "ops.quality-control",
+    "ops.project-memory"
+  ],
+  "tools": [
+    "claude",
+    "knowledge",
+    "kv",
+    "gmail",
+    "slack",
+    "gdrive"
+  ],
+  "knowledge": [
+    "company",
+    "pillars",
+    "offers",
+    "case_studies",
+    "brand",
+    "personas"
+  ],
+  "input_schema": {
+    "task_id": "string",
+    "objective": "string",
+    "context": "string",
+    "input": "object",
+    "required_skills": "string[]",
+    "allowed_tools": "string[]",
+    "expected_output": "string",
+    "success_criteria": "string"
+  },
+  "output_schema": "JSON per task contract",
+  "permissions": {
+    "can_send_email": true,
+    "can_generate_media": false,
+    "can_search_web": false
+  }
+}

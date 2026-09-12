@@ -1,0 +1,45 @@
+{
+  "id": "content-creative",
+  "name": "Content & Creative Agent",
+  "department": "marketing",
+  "role": "Art director",
+  "status": "active",
+  "model": {
+    "provider": "anthropic",
+    "model": "default",
+    "fallback": "openai",
+    "temperature": 0.4
+  },
+  "skills": [
+    "creative.direction",
+    "creative.image-prompt",
+    "creative.video-prompt",
+    "creative.social-design",
+    "creative.brand-compliance"
+  ],
+  "tools": [
+    "claude",
+    "knowledge",
+    "higgsfield"
+  ],
+  "knowledge": [
+    "brand",
+    "company"
+  ],
+  "input_schema": {
+    "task_id": "string",
+    "objective": "string",
+    "context": "string",
+    "input": "object",
+    "required_skills": "string[]",
+    "allowed_tools": "string[]",
+    "expected_output": "string",
+    "success_criteria": "string"
+  },
+  "output_schema": "JSON per task contract",
+  "permissions": {
+    "can_send_email": false,
+    "can_generate_media": true,
+    "can_search_web": false
+  }
+}
