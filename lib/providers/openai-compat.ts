@@ -37,7 +37,11 @@ export function openaiCompat(s: Spec): ModelProvider {
           data = await post(body);
         } else throw e;
       }
-      const text = data.choices?.[0]?.message?.content || '';
+      const m = data.choices?.[0]?.message || {};
+      let text = m.content || '';
+      // Reasoning models (GPT-OSS, DeepSeek R1) may return empty content with the text in a reasoning field.
+      if (!text) text = m.reasoning_content || m.reasoning || '';
+      if (!text && data.choices?.[0]?.finish_reason === 'length') text = '[The model hit the token limit before producing an answer. Raise max_tokens.]';
       return { text, json: extractJSON(text), sources: [], tools: [], images: [], toolResults: [], events, ms: Date.now() - started, provider: s.id, model: data.model || model, usage: data.usage };
     }
   };

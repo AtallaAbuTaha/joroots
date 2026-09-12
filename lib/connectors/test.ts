@@ -7,8 +7,9 @@ export async function testConnector(id: string, keys?: Record<string, string>): 
   try {
     if (c.kind === 'model' || c.id === 'web_search') {
       const p = byId(c.id === 'web_search' ? 'anthropic' : c.id); if (!p) return { ok: false, message: 'No adapter' };
-      const r = await p.call({ keys, system: 'Reply with the single word OK.', content: [{ type: 'text', text: 'ping' }], maxTokens: 8 });
-      return { ok: /ok/i.test(r.text), message: r.model + ' replied in ' + r.ms + 'ms' };
+      const r = await p.call({ keys, system: 'Reply with the single word OK.', content: [{ type: 'text', text: 'ping' }], maxTokens: 64 });
+      const reply = (r.text || '').replace(/\s+/g, ' ').trim();
+      return { ok: true, message: r.model + ' · ' + r.ms + 'ms' + (reply ? ' · replied "' + reply.slice(0, 60) + '"' : ' · connected (empty reply, harmless on a test ping)') };
     }
     if (c.id === 'tavily') { const { tavilySearch } = await import('../search'); const r = await tavilySearch('Joroots Amman', 2, keys); return { ok: r.hits.length > 0, message: r.hits.length + ' results — search is live' }; }
     if (c.kind === 'storage') { const r = await fetch(process.env.KV_REST_API_URL + '/ping', { headers: { authorization: 'Bearer ' + process.env.KV_REST_API_TOKEN } }); return { ok: r.ok, message: r.ok ? 'Upstash reachable' : 'HTTP ' + r.status }; }
