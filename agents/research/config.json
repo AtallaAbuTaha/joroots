@@ -19,7 +19,7 @@
     "research.insight-extraction"
   ],
   "tools": [
-    "claude",
+    "anthropic",
     "web_search",
     "knowledge",
     "gdrive"

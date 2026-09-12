@@ -19,7 +19,7 @@
     "marketing.content-planning"
   ],
   "tools": [
-    "claude",
+    "anthropic",
     "knowledge"
   ],
   "knowledge": [

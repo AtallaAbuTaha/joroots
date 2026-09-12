@@ -16,7 +16,7 @@
     "ops.project-memory"
   ],
   "tools": [
-    "claude",
+    "anthropic",
     "knowledge",
     "kv",
     "gmail",
