@@ -1,8 +1,8 @@
 import { loadAgents, loadSkills } from './loader'; import { retrieve } from '../knowledge/loader';
 import { resolveChain } from '../providers'; import { ContentBlock, isRetryable } from '../providers/types';
-import { mcpServersFor, isConnected } from '../connectors/registry'; import { logsRepo } from '../repo/store';
+import { mcpServersFor, isConnectedWith } from '../connectors/registry'; import { logsRepo } from '../repo/store';
 import { tavilyReady, tavilySearch, evidenceBlock } from '../search';
-export type TaskContract = { task_id: string; parent_task_id?: string; objective: string; context?: string; input: ContentBlock[]; assigned_agent: string; required_skills?: string[]; allowed_tools?: string[]; expected_output?: string; success_criteria?: string; extra_system?: string; web_search?: boolean; mcp?: string[]; max_tokens?: number };
+export type TaskContract = { task_id: string; parent_task_id?: string; objective: string; context?: string; input: ContentBlock[]; assigned_agent: string; required_skills?: string[]; allowed_tools?: string[]; expected_output?: string; success_criteria?: string; extra_system?: string; web_search?: boolean; mcp?: string[]; max_tokens?: number; keys?: Record<string, string> };
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 export async function runTask(t: TaskContract) {
   const agents = await loadAgents(); const a = agents.find(x => x.id === t.assigned_agent); if (!a) throw new Error('Unknown agent ' + t.assigned_agent);
@@ -14,17 +14,17 @@ export async function runTask(t: TaskContract) {
   // least privilege: tool must be granted to the agent AND allowed by the task AND actually connected
   const allowed = (id: string) => a.tools.includes(id) && (!t.allowed_tools || t.allowed_tools.includes(id));
   const mcpIds = (t.mcp || []).filter(allowed); const needsMcp = mcpIds.length > 0;
-  mcpIds.filter(id => !isConnected(id)).forEach(id => unavailable.push(id));
-  const chain = resolveChain(a.model?.provider, a.model?.fallback, needsMcp);
-  const mcpServers = mcpServersFor(mcpIds);
+  mcpIds.filter(id => !isConnectedWith(id, t.keys)).forEach(id => unavailable.push(id));
+  const chain = resolveChain(a.model?.provider, a.model?.fallback, needsMcp, t.keys);
+  const mcpServers = mcpServersFor(mcpIds, t.keys);
   // Search: Anthropic runs it server-side; every other provider gets Tavily evidence injected instead.
   let content = t.input.slice(); let nativeSearch = false;
   if (t.web_search && allowed('web_search')) {
     if (chain[0].supportsNativeSearch) { nativeSearch = true; }
-    else if (tavilyReady() && allowed('tavily')) {
+    else if (tavilyReady(t.keys) && allowed('tavily')) {
       const q = (t.objective || inputText).slice(0, 380);
       try {
-        const res = await tavilySearch(q); res.hits.forEach(h => sources.push({ url: h.url, title: h.title }));
+        const res = await tavilySearch(q, 5, t.keys); res.hits.forEach(h => sources.push({ url: h.url, title: h.title }));
         content = ([{ type: 'text', text: evidenceBlock(q, res) }] as ContentBlock[]).concat(content);
         events.push({ who: 'tool', text: `Tavily search: ${res.hits.length} results for "${q.slice(0, 60)}"`, kind: 'tool' });
       } catch (e: any) { events.push({ who: 'tool', text: 'Tavily search failed: ' + e.message, kind: 'err' }); unavailable.push('tavily'); }
@@ -42,7 +42,7 @@ export async function runTask(t: TaskContract) {
     const p = chain[i];
     for (let retry = 0; retry < 2; retry++) {
       try {
-        const r = await p.call({ system, content, maxTokens: t.max_tokens || 2000, temperature: a.model?.temperature, jsonMode: wantsJson, webSearch: nativeSearch, mcpServers });
+        const r = await p.call({ keys: t.keys, system, content, maxTokens: t.max_tokens || 2000, temperature: a.model?.temperature, jsonMode: wantsJson, webSearch: nativeSearch, mcpServers });
         await logsRepo.append({ task_id: t.task_id, agent: a.id, provider: r.provider, model: r.model, ms: r.ms, tools: r.tools.map(x => x.tool), usage: r.usage, attempts: attempts.length, ok: true });
         return { ...r, sources: sources.concat(r.sources), events: events.concat(r.events), attempts, agent: a.id, agentName: a.name, skills_used: use, knowledge_used: kn.map(k => k.id), unavailable_connectors: [...new Set(unavailable)], task_id: t.task_id };
       } catch (e: any) {

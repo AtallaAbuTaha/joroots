@@ -6,11 +6,12 @@ export type NormalizedResult = {
   attempts?: { provider: string; error: string }[];
 };
 export type ModelCall = {
+  keys?: Record<string, string>;
   system: string; content: ContentBlock[]; maxTokens?: number; temperature?: number; jsonMode?: boolean;
   webSearch?: boolean; mcpServers?: { type: 'url'; url: string; name: string; authorization_token?: string }[];
 };
 export interface ModelProvider {
-  id: string; name: string; available(): boolean; supportsMcp?: boolean; supportsNativeSearch?: boolean;
+  id: string; name: string; available(keys?: Record<string, string>): boolean; supportsMcp?: boolean; supportsNativeSearch?: boolean;
   call(c: ModelCall): Promise<NormalizedResult>;
 }
 export function extractJSON(text: string) {

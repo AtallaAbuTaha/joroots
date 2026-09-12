@@ -5,8 +5,10 @@ type Spec = { id: string; name: string; baseUrl: string; keyEnv: string; modelEn
 export function openaiCompat(s: Spec): ModelProvider {
   return {
     id: s.id, name: s.name, supportsMcp: false, supportsNativeSearch: false,
-    available: () => !!process.env[s.keyEnv],
+    available: (keys) => !!(keys?.[s.keyEnv] || process.env[s.keyEnv]),
     async call(c: ModelCall): Promise<NormalizedResult> {
+      const apiKey = c.keys?.[s.keyEnv] || process.env[s.keyEnv];
+      if (!apiKey) throw new Error(s.name + ': no key');
       const model = process.env[s.modelEnv] || s.defaultModel; const started = Date.now();
       const parts: any[] = []; const skipped: string[] = [];
       for (const b of c.content as any[]) {
@@ -18,7 +20,7 @@ export function openaiCompat(s: Spec): ModelProvider {
       const body: any = { model, max_tokens: c.maxTokens || 2000, messages: [{ role: 'system', content: c.system }, { role: 'user', content: parts.length === 1 && parts[0].type === 'text' ? parts[0].text : parts }] };
       if (typeof c.temperature === 'number') body.temperature = c.temperature;
       if (c.jsonMode && s.jsonMode !== false) body.response_format = { type: 'json_object' };
-      const headers = { 'content-type': 'application/json', authorization: 'Bearer ' + process.env[s.keyEnv], ...(s.headers ? s.headers() : {}) };
+      const headers = { 'content-type': 'application/json', authorization: 'Bearer ' + apiKey, ...(s.headers ? s.headers() : {}) };
       const post = async (payload: any) => {
         const r = await fetch(s.baseUrl.replace(/\/$/, '') + '/chat/completions', { method: 'POST', headers, body: JSON.stringify(payload) });
         const d = await r.json().catch(() => ({}));

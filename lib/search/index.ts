@@ -1,9 +1,9 @@
 // Provider-agnostic web search. Tavily free plan: 1,000 credits/month, no card. Keeps search independent of the model vendor.
 export type SearchHit = { title: string; url: string; content: string };
-export const tavilyReady = () => !!process.env.TAVILY_API_KEY;
-export async function tavilySearch(query: string, max = 5): Promise<{ answer?: string; hits: SearchHit[] }> {
+export const tavilyReady = (keys?: Record<string, string>) => !!(keys?.TAVILY_API_KEY || process.env.TAVILY_API_KEY);
+export async function tavilySearch(query: string, max = 5, keys?: Record<string, string>): Promise<{ answer?: string; hits: SearchHit[] }> {
   const r = await fetch('https://api.tavily.com/search', {
-    method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + process.env.TAVILY_API_KEY },
+    method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + (keys?.TAVILY_API_KEY || process.env.TAVILY_API_KEY) },
     body: JSON.stringify({ query, max_results: max, search_depth: 'basic', include_answer: true })
   });
   const d = await r.json().catch(() => ({}));

@@ -6,18 +6,24 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const agent=id=>S.cfg.agents.find(a=>a.id===id);
 const reg=id=>S.cfg.registry.find(r=>r.id===id);
+const KEY_ENV={groq:'GROQ_API_KEY',gemini:'GEMINI_API_KEY',anthropic:'ANTHROPIC_API_KEY',openrouter:'OPENROUTER_API_KEY',mistral:'MISTRAL_API_KEY',deepseek:'DEEPSEEK_API_KEY',openai:'OPENAI_API_KEY',tavily:'TAVILY_API_KEY',higgsfield:'HIGGSFIELD_MCP_TOKEN',canva:'CANVA_MCP_TOKEN',slack:'SLACK_MCP_TOKEN',gmail:'GMAIL_MCP_TOKEN',gdrive:'GDRIVE_MCP_TOKEN'};
+function localKeys(){ try{ return JSON.parse(localStorage.getItem('jr-keys')||'{}'); }catch(e){ return {}; } }
+function setLocalKeys(o){ try{ localStorage.setItem('jr-keys',JSON.stringify(o)); }catch(e){} }
+const hasKey=id=>!!localKeys()[KEY_ENV[id]];
+const providerReady=p=>p.available||hasKey(p.id);
+const connReady=r=>r.status==='CONNECTED'||hasKey(r.id);
 const api=async(url,body)=>{ const r=await fetch(url,body?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:undefined); const d=await r.json(); if(!r.ok||d.error) throw new Error(d.error||('HTTP '+r.status)); return d; };
 const uid=()=>'t'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 
 async function loadCfg(){ S.cfg=await api('/api/config'); S.persistent=S.cfg.persistent; }
 async function boot(){
   try{ await loadCfg(); const p=await api('/api/projects'); S.projects=p.projects; }catch(e){ sysMsg('Could not load config: '+e.message); return; }
-  const noModel=!S.cfg.providers.some(p=>p.available); const b=$('#banner');
-  if(noModel){ b.style.display='block'; b.innerHTML='No model provider configured. Add <b>GROQ_API_KEY</b> (free, no card, console.groq.com) in Vercel → Settings → Environment Variables, then redeploy. Gemini, Anthropic, OpenRouter and Mistral keys also work.'; }
+  const noModel=!S.cfg.providers.some(providerReady); const b=$('#banner');
+  if(noModel){ b.style.display='block'; b.innerHTML='No model connected yet. <b>Press Keys in the top bar</b> and paste a Groq key (free, no card, console.groq.com) — it stays in this browser. For the whole team, add GROQ_API_KEY in Vercel instead.'; }
   else if(!S.persistent){ b.style.display='block'; b.textContent='Running without persistent storage — projects are lost on redeploy. Add KV_REST_API_URL and KV_REST_API_TOKEN (Upstash) to keep them.'; }
   renderRight(); renderCenter();
-  const av=S.cfg.providers.filter(p=>p.available);
-  sysMsg('Ready. '+S.cfg.agents.filter(a=>a.status==='active').length+' employees active, '+S.projects.length+' projects. Models: '+(av.length?av.map(p=>p.name).join(' → '):'none yet')+'. Search: '+(S.cfg.registry.find(r=>r.id==='tavily'&&r.status==='CONNECTED')?'Tavily':S.cfg.registry.find(r=>r.id==='web_search'&&r.status==='CONNECTED')?'Anthropic':'not connected')+'.');
+  const av=S.cfg.providers.filter(providerReady);
+  sysMsg('Ready. '+S.cfg.agents.filter(a=>a.status==='active').length+' employees active, '+S.projects.length+' projects. Models: '+(av.length?av.map(p=>p.name).join(' → '):'none yet')+'. Search: '+(hasKey('tavily')||S.cfg.registry.find(r=>r.id==='tavily'&&r.status==='CONNECTED')?'Tavily':hasKey('anthropic')||S.cfg.registry.find(r=>r.id==='web_search'&&r.status==='CONNECTED')?'Anthropic':'not connected')+'.');
 }
 async function updateAgent(id,patch){ Object.assign(agent(id),patch); await api('/api/config',{action:'update_agent',id,patch}); }
 async function saveProject(p){ try{ await api('/api/projects',{project:p}); }catch(e){ ev('System','Save failed: '+e.message,'err'); } }
@@ -40,7 +46,7 @@ async function runTask(t){
   const a=agent(t.assigned_agent); if(!a) throw new Error('No agent '+t.assigned_agent);
   const task={task_id:uid(),parent_task_id:S.current?S.current.id:null,status:'RUNNING',created_at:Date.now(),...t};
   if(S.current) S.current.tasks.push(task); agentState(a.id,true);
-  try{ const r=await api('/api/agent',task); (r.events||[]).forEach(e=>ev(a.name,e.text,e.kind)); task.status='COMPLETED'; task.completed_at=Date.now(); task.result={provider:r.provider,model:r.model,ms:r.ms,tools:r.tools,skills:r.skills_used,knowledge:r.knowledge_used,unavailable:r.unavailable_connectors,usage:r.usage};
+  try{ const r=await api('/api/agent',Object.assign({},task,{keys:localKeys()})); (r.events||[]).forEach(e=>ev(a.name,e.text,e.kind)); task.status='COMPLETED'; task.completed_at=Date.now(); task.result={provider:r.provider,model:r.model,ms:r.ms,tools:r.tools,skills:r.skills_used,knowledge:r.knowledge_used,unavailable:r.unavailable_connectors,usage:r.usage};
     if(S.current){ S.current.models=(S.current.models||[]).concat([r.provider+'/'+r.model]); if(!S.current.tools.includes(r.provider)) S.current.tools.push(r.provider); }
     (r.attempts||[]).forEach(x=>ev('System',x.provider+' failed over: '+String(x.error).slice(0,90),'err'));
     if(r.unavailable_connectors&&r.unavailable_connectors.length) ev(a.name,'Not connected: '+r.unavailable_connectors.join(', ')+' — connect in Settings','err');
@@ -100,7 +106,7 @@ async function run(request){
       p.creative=c.json||{concept:c.text}; ev('Content & Creative Agent','Brief ready: '+(p.creative.concept||''),'done'); renderCenter();
       const ca=agent('content-creative'), hig=reg('higgsfield');
       if(ca.tools.includes('higgsfield')&&p.creative.image_prompt){
-        if(hig&&hig.status==='CONNECTED'){
+        if(hig&&connReady(hig)){
           step('Image','Higgsfield generating'); ev('Content & Creative Agent','Generating image with Higgsfield','tool'); p.tools.push('higgsfield');
           try{ const g=await runTask({assigned_agent:'content-creative',objective:'Generate image',mcp:['higgsfield'],allowed_tools:['knowledge','higgsfield'],expected_output:'JSON image urls',
               input:text(`Generate ONE image with the Higgsfield image tool, aspect ratio 4:5, prompt:\n\n${p.creative.image_prompt}\n\nRules: call the tool; if it returns a job id, call jobs_wait until complete; then reply JSON only: {"images":["https://..."]} or {"images":[],"error":"reason"}.`),extra_system:'You must actually call the tools. Never describe an image instead of generating it.'});
@@ -134,7 +140,7 @@ async function share(p,kind){
   if(S.busy) return; const note=t=>{ p.shareNote=t; const n=$('#sharenote'); if(n) n.textContent=t; };
   if(kind==='copy'){ try{ await navigator.clipboard.writeText(postText(p)); note('Caption copied'); }catch(e){ note('Copy blocked — select the text manually'); } return; }
   const conn={gmail:'gmail',slack:'slack',gdrive:'gdrive',canva:'canva'}[kind]; const c=reg(conn);
-  if(!c||c.status!=='CONNECTED'){ note((c?c.name:kind)+' is not connected. Add '+(c?c.required_env.join(', '):'credentials')+' in Settings.'); return; }
+  if(!c||!connReady(c)){ note((c?c.name:kind)+' is not connected. Add '+(c?c.required_env.join(', '):'credentials')+' in Settings.'); return; }
   const t=postText(p), img=p.images[0]||''; let task='', who='orchestrator';
   if(kind==='gmail'){ const to=prompt('Draft to (email)'); if(!to) return; task=`Create a Gmail DRAFT (do not send) to ${to}. Subject: "Joroots post — ${(p.marketing||{}).headline||p.title}". Body:\n${t}${img?'\nImage: '+img:''}\nReply with the draft link or id.`; }
   if(kind==='slack'){ const ch=prompt('Slack channel','#general'); if(!ch) return; task=`Post to Slack channel ${ch}:\n${t}${img?'\n'+img:''}\nReply with the permalink or "posted".`; }
@@ -152,6 +158,7 @@ function renderCenter(){
   const v=S.view, w=$('#ws');
   if(v.mode==='employee') return w.innerHTML=employeeHTML(v.id), bindEmployee(v.id);
   if(v.mode==='add') return w.innerHTML=addHTML(), bindAdd();
+  if(v.mode==='keys') return w.innerHTML=keysHTML(), bindKeys();
   if(v.mode!=='work'||!v.project){
     w.innerHTML=`<div class="empty"><h1 class="disp">What do you need built?</h1><p>The Orchestrator reads the request, checks the Joroots knowledge base, and routes to Research, Marketing and Creative only when needed. The result lands here.</p><p>Try one:</p>
     <button class="ex" data-ex="Create a Joroots social media post explaining how AI orchestration can help SMEs in Jordan.">Create a Joroots social media post explaining how AI orchestration can help SMEs in Jordan.</button>
@@ -210,8 +217,8 @@ function employeeHTML(id){
   <section><h2>Projects (${projs.length})</h2>${projs.slice(0,10).map(p=>`<button class="proj" data-open="${p.id}"><div class="t">${esc(p.title)}</div><div class="d">${esc(p.type)} · ${esc(p.status||'')} · ${new Date(p.created).toLocaleDateString()}</div></button>`).join('')||'<div class="meta">No projects yet</div>'}</section>
   </div>
   <section><h2>Activity</h2><div class="activity">${acts.map(e=>`<div class="ev ${e.kind}"><span class="who">${new Date(e.t).toLocaleTimeString()}</span><span class="t">${esc(e.text)}</span></div>`).join('')||'<div class="meta">Nothing yet this session</div>'}</div></section>
-  <section><h2>Configuration</h2><div class="form"><label>Model provider</label><select id="prov"><option value="auto" ${!a.model||a.model.provider==='auto'?'selected':''}>Auto — first available, with fallback</option>${S.cfg.providers.map(p=>`<option value="${p.id}" ${a.model&&a.model.provider===p.id?'selected':''} ${p.available?'':'disabled'}>${esc(p.name)}${p.available?'':' — no key'}</option>`).join('')}</select>
-  <div class="meta" style="margin-top:4px">Fallback order: ${esc(S.cfg.providers.filter(p=>p.available).map(p=>p.name).join(' → ')||'none configured')}. Connector tools (Higgsfield, Canva, Gmail, Slack, Drive) need Anthropic.</div>
+  <section><h2>Configuration</h2><div class="form"><label>Model provider</label><select id="prov"><option value="auto" ${!a.model||a.model.provider==='auto'?'selected':''}>Auto — first available, with fallback</option>${S.cfg.providers.map(p=>`<option value="${p.id}" ${a.model&&a.model.provider===p.id?'selected':''} ${providerReady(p)?'':'disabled'}>${esc(p.name)}${providerReady(p)?'':' — no key'}</option>`).join('')}</select>
+  <div class="meta" style="margin-top:4px">Fallback order: ${esc(S.cfg.providers.filter(providerReady).map(p=>p.name).join(' → ')||'none configured')}. Connector tools (Higgsfield, Canva, Gmail, Slack, Drive) need Anthropic.</div>
   <label>Instructions</label><textarea id="instr" style="min-height:140px">${esc(a.instructions)}</textarea></div>
   <dl class="kv" style="margin-top:10px"><dt>Permissions</dt><dd>${esc(JSON.stringify(a.permissions||{}))}</dd></dl>
   <div class="row" style="margin-top:10px"><button class="btn" id="saveinstr">Save configuration</button><span class="meta" id="savedmsg"></span></div></section></div>`;
@@ -229,12 +236,35 @@ function bindEmployee(id){
 }
 function openProject(id){ const p=S.projects.find(x=>x.id===id); if(!p) return; S.view={mode:'work',project:p}; renderCenter(); }
 
+// ---- keys (browser-local)
+function keysHTML(){
+  const k=localKeys(); const mask=v=>v?v.slice(0,6)+'…'+v.slice(-4):'';
+  const rows=[['groq','Groq — free, no card, start here','console.groq.com'],['tavily','Tavily — web search for Research, 1,000/month free','tavily.com'],['gemini','Google Gemini — free tier trains on your inputs; use a billing-enabled key for client work','aistudio.google.com'],['anthropic','Anthropic — needed for image generation and the Gmail/Slack/Drive/Canva buttons','console.anthropic.com'],['openrouter','OpenRouter — fallback','openrouter.ai'],['mistral','Mistral — EU hosting','console.mistral.ai']];
+  return `<div class="ws prof"><button class="btn ghost sm" id="back">← Workspace</button>
+  <h1 class="disp" style="margin-top:14px">Keys</h1>
+  <p class="meta">Pasted here, a key is saved in this browser only and sent with your own requests. It is never written to the repo and never stored on the server. Good for testing on your own machine. For the team, or for anything permanent, put the same key in Vercel → Settings → Environment Variables instead — then you can clear it here.</p>
+  <div class="form">${rows.map(([id,label,where])=>`<label>${esc(label)} <span class="meta">· ${esc(where)}</span></label>
+    <div class="row"><input id="k-${id}" type="password" placeholder="${esc(KEY_ENV[id])}" value="${esc(k[KEY_ENV[id]]||'')}" style="flex:1">
+    <button class="btn ghost sm" data-test="${id}">Test</button></div>
+    <div class="meta" id="m-${id}">${k[KEY_ENV[id]]?'saved in this browser · '+esc(mask(k[KEY_ENV[id]])):''}</div>`).join('')}
+  <div class="row" style="margin-top:16px"><button class="btn" id="ksave">Save keys</button><button class="btn ghost" id="kclear">Clear all</button><span class="meta" id="kmsg"></span></div></div></div>`;
+}
+function bindKeys(){
+  const w=$('#ws'); const ids=['groq','tavily','gemini','anthropic','openrouter','mistral'];
+  $('#back').onclick=()=>{ S.view={mode:S.current?'work':'empty',project:S.current}; renderCenter(); };
+  const collect=()=>{ const o=localKeys(); ids.forEach(id=>{ const v=$('#k-'+id).value.trim(); if(v) o[KEY_ENV[id]]=v; else delete o[KEY_ENV[id]]; }); return o; };
+  $('#ksave').onclick=()=>{ setLocalKeys(collect()); $('#kmsg').textContent='Saved in this browser'; $('#banner').style.display='none'; renderRight(); };
+  $('#kclear').onclick=()=>{ setLocalKeys({}); renderCenter(); renderRight(); };
+  w.querySelectorAll('[data-test]').forEach(b=>b.onclick=async()=>{ const id=b.dataset.test, m=$('#m-'+id); m.textContent='Testing…'; setLocalKeys(collect());
+    try{ const r=await api('/api/connectors/test',{id,keys:localKeys()}); m.textContent=(r.ok?'Works — ':'Failed — ')+r.message; if(r.ok) $('#banner').style.display='none'; }catch(e){ m.textContent='Failed — '+e.message; } });
+}
+
 // ---- add employee
 function addHTML(){
   return `<div class="ws prof"><button class="btn ghost sm" id="back">← Workspace</button><h1 class="disp" style="margin-top:14px">Add employee</h1><div class="form">
   <label>Name</label><input id="f-name" placeholder="Proposal Writer"><label>Department</label><select id="f-dept">${S.cfg.departments.map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join('')}<option value="__new">New department…</option></select>
   <label>Role</label><input id="f-role" placeholder="Writes tender proposals from the capability base"><label>Mission</label><input id="f-mission"><label>Responsibilities</label><textarea id="f-resp"></textarea>
-  <label>Model</label><select id="f-model"><option value="auto">Auto — first available</option>${S.cfg.providers.map(p=>`<option value="${p.id}" ${p.available?'':'disabled'}>${esc(p.name)}${p.available?'':' — no key'}</option>`).join('')}</select>
+  <label>Model</label><select id="f-model"><option value="auto">Auto — first available</option>${S.cfg.providers.map(p=>`<option value="${p.id}" ${providerReady(p)?'':'disabled'}>${esc(p.name)}${providerReady(p)?'':' — no key'}</option>`).join('')}</select>
   <label>Skills</label><div>${Object.entries(S.cfg.skills).map(([k,s])=>`<label class="chk"><input type="checkbox" name="sk" value="${k}"> ${esc(s.name)}</label>`).join('')}</div>
   <label>Tools</label><div>${S.cfg.registry.filter(r=>r.kind!=='model').map(r=>`<label class="chk"><input type="checkbox" name="tl" value="${r.id}" ${r.id==='knowledge'?'checked':''}> ${esc(r.name)}</label>`).join('')}</div>
   <label>Knowledge access</label><div>${[...new Set(S.cfg.knowledge.map(k=>k.category))].map(k=>`<label class="chk"><input type="checkbox" name="kn" value="${k}" ${['company','brand'].includes(k)?'checked':''}> ${esc(k)}</label>`).join('')}</div>
@@ -260,7 +290,7 @@ function renderRight(){
     r.innerHTML=(S.projects.map(p=>`<button class="proj" data-open="${p.id}"><div class="t">${esc(p.title)}</div><div class="d">${esc(p.type||'')} · ${esc(p.status||'')} · ${new Date(p.created).toLocaleDateString()}${p.images.length?' · image':''}</div></button>`).join('')||'<div class="meta">No projects yet.</div>')+(S.projects.length?`<button class="plus" id="clearproj">Clear library</button>`:'');
     r.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openProject(b.dataset.open)); const c=$('#clearproj'); if(c) c.onclick=async()=>{ if(confirm('Delete all projects?')){ await api('/api/projects',{action:'clear'}); S.projects=[]; renderRight(); S.view={mode:'empty'}; renderCenter(); } };
   } else {
-    r.innerHTML=S.cfg.registry.map(x=>`<div class="reg"><b>${esc(x.name)}</b><span class="s ${x.status==='CONNECTED'?'ok':'no'}">${esc(x.status)}${x.missing&&x.missing.length?' · '+esc(x.missing.join(', ')):''}</span><div>${esc((x.available_actions||[]).join(' · '))}</div><div class="s">Used by: ${esc(x.assigned_agents.map(a=>agent(a)?agent(a).name:a).join(', ')||'—')}</div></div>`).join('')+`<a class="plus" href="/settings" style="display:block;text-decoration:none">Manage in Settings</a>`;
+    r.innerHTML=S.cfg.registry.map(x=>`<div class="reg"><b>${esc(x.name)}</b><span class="s ${connReady(x)?'ok':'no'}">${connReady(x)?(x.status==='CONNECTED'?'CONNECTED':'CONNECTED (browser key)'):esc(x.status)}${!connReady(x)&&x.missing&&x.missing.length?' · '+esc(x.missing.join(', ')):''}</span><div>${esc((x.available_actions||[]).join(' · '))}</div><div class="s">Used by: ${esc(x.assigned_agents.map(a=>agent(a)?agent(a).name:a).join(', ')||'—')}</div></div>`).join('')+`<a class="plus" href="/settings" style="display:block;text-decoration:none">Manage in Settings</a>`;
   }
 }
 
@@ -273,4 +303,5 @@ $('#file').onchange=async e=>{ for(const f of e.target.files){ const b64=await n
   $('#filelist').textContent=S.files.map(f=>f.name).join(', '); e.target.value=''; };
 $('#mic').onclick=()=>{ const SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR) return sysMsg('Voice input is not available in this browser.'); try{ const r=new SR(); r.lang='en-US'; r.onresult=e=>{ $('#input').value+=(($('#input').value?' ':'')+e.results[0][0].transcript); }; r.onerror=e=>sysMsg('Voice failed: '+e.error); r.start(); sysMsg('Listening…'); }catch(e){ sysMsg('Voice failed: '+e.message); } };
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ S.tab=b.dataset.tab; renderRight(); });
+const keysLink=document.getElementById('keyslink'); if(keysLink) keysLink.onclick=e=>{ e.preventDefault(); S.view={mode:'keys'}; renderCenter(); };
 boot();

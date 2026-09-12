@@ -31,8 +31,13 @@ export function connectorStatus(c: Connector): { status: ConnectorStatus; missin
 }
 export const getConnector = (id: string) => CONNECTORS.find(c => c.id === id);
 export const isConnected = (id: string) => { const c = getConnector(id); return !!c && connectorStatus(c).status === 'CONNECTED'; };
-export function mcpServersFor(ids: string[]) {
-  return ids.map(getConnector).filter(c => c && c.kind === 'mcp' && connectorStatus(c).status === 'CONNECTED')
-    .map(c => ({ type: 'url' as const, url: c!.mcp_url!, name: c!.id + '-mcp', authorization_token: process.env[c!.required_env[0]] }));
+export function mcpServersFor(ids: string[], keys?: Record<string, string>) {
+  return ids.map(getConnector).filter(c => c && c.kind === 'mcp' && (keys?.[c.required_env[0]] || connectorStatus(c).status === 'CONNECTED'))
+    .map(c => ({ type: 'url' as const, url: c!.mcp_url!, name: c!.id + '-mcp', authorization_token: keys?.[c!.required_env[0]] || process.env[c!.required_env[0]] }));
+}
+export function isConnectedWith(id: string, keys?: Record<string, string>) {
+  const c = getConnector(id); if (!c) return false;
+  if (keys && c.required_env.length && c.required_env.every(k => keys[k] || process.env[k])) return true;
+  return connectorStatus(c).status === 'CONNECTED';
 }
 export const registryView = () => CONNECTORS.map(c => ({ ...c, ...connectorStatus(c) }));
