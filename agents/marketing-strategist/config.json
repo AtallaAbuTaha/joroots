@@ -5,9 +5,9 @@
   "role": "Strategist & copywriter",
   "status": "active",
   "model": {
-    "provider": "anthropic",
+    "provider": "auto",
     "model": "default",
-    "fallback": "openai",
+    "fallback": "auto",
     "temperature": 0.4
   },
   "skills": [
@@ -19,7 +19,6 @@
     "marketing.content-planning"
   ],
   "tools": [
-    "anthropic",
     "knowledge"
   ],
   "knowledge": [

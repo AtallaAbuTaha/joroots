@@ -26,10 +26,26 @@ docs/system-audit.md                 audit and reuse decisions
 ```
 
 ## Credentials (Vercel → Project → Settings → Environment Variables → redeploy)
+
+**One key is enough to run the system.** Providers are tried in order and fail over automatically; the default chain is Groq → Gemini → Anthropic → OpenRouter → Mistral → DeepSeek → OpenAI (override with `PROVIDER_CHAIN`).
+
+| Variable | Unlocks | Free? | Where |
+|---|---|---|---|
+| `GROQ_API_KEY` | **start here** — all four agents | Free, no card, does not train on your inputs | console.groq.com |
+| `TAVILY_API_KEY` | web search for the Research Agent | 1,000 searches/month free, no card | tavily.com |
+| `GEMINI_API_KEY` | quality tier, 1M context, vision | Free tier **trains on your inputs** and is barred for EU/UK production — enable billing for client-confidential work | aistudio.google.com |
+| `ANTHROPIC_API_KEY` | connector tools (Higgsfield, Canva, Gmail, Slack, Drive) + native web search | Paid | console.anthropic.com |
+| `OPENROUTER_API_KEY` | breadth fallback | Free routes may train on inputs unless disabled in account settings | openrouter.ai |
+| `MISTRAL_API_KEY` | EU hosting, zero-retention option | Free evaluation tier | console.mistral.ai |
+| `DEEPSEEK_API_KEY` | cheap fallback — data processed in China | Paid, very cheap | platform.deepseek.com |
+| `OPENAI_API_KEY` | paid fallback | Paid | platform.openai.com |
+
+Model IDs are overridable per provider (`GROQ_MODEL`, `GEMINI_MODEL`, …) because free-tier model names change often.
+
+**Two constraints worth knowing:** MCP connector tools are carried by the Anthropic API, so image generation and the Gmail/Slack/Drive share buttons need `ANTHROPIC_API_KEY` — every other agent runs fine on Groq alone. And search is routed to Tavily whenever the serving model is not Anthropic; with neither connected, the Research Agent says so instead of inventing sources.
+
 | Variable | Unlocks | Where |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | all four agents + web search | console.anthropic.com |
-| `OPENAI_API_KEY` | fallback provider | platform.openai.com |
 | `KV_REST_API_URL`, `KV_REST_API_TOKEN` | persistent projects, config, logs | Upstash Redis (free) or Vercel KV |
 | `HIGGSFIELD_MCP_TOKEN` | image / video generation | OAuth bearer from mcp.higgsfield.ai |
 | `CANVA_MCP_TOKEN` | Canva designs | OAuth bearer from mcp.canva.com |

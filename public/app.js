@@ -13,10 +13,11 @@ async function loadCfg(){ S.cfg=await api('/api/config'); S.persistent=S.cfg.per
 async function boot(){
   try{ await loadCfg(); const p=await api('/api/projects'); S.projects=p.projects; }catch(e){ sysMsg('Could not load config: '+e.message); return; }
   const noModel=!S.cfg.providers.some(p=>p.available); const b=$('#banner');
-  if(noModel){ b.style.display='block'; b.textContent='No model provider configured. Add ANTHROPIC_API_KEY in Vercel → Settings → Environment Variables, then redeploy.'; }
+  if(noModel){ b.style.display='block'; b.innerHTML='No model provider configured. Add <b>GROQ_API_KEY</b> (free, no card, console.groq.com) in Vercel → Settings → Environment Variables, then redeploy. Gemini, Anthropic, OpenRouter and Mistral keys also work.'; }
   else if(!S.persistent){ b.style.display='block'; b.textContent='Running without persistent storage — projects are lost on redeploy. Add KV_REST_API_URL and KV_REST_API_TOKEN (Upstash) to keep them.'; }
   renderRight(); renderCenter();
-  sysMsg('Ready. '+S.cfg.agents.filter(a=>a.status==='active').length+' employees active, '+S.projects.length+' projects, '+S.cfg.registry.filter(r=>r.status==='CONNECTED').length+' of '+S.cfg.registry.length+' connectors connected.');
+  const av=S.cfg.providers.filter(p=>p.available);
+  sysMsg('Ready. '+S.cfg.agents.filter(a=>a.status==='active').length+' employees active, '+S.projects.length+' projects. Models: '+(av.length?av.map(p=>p.name).join(' → '):'none yet')+'. Search: '+(S.cfg.registry.find(r=>r.id==='tavily'&&r.status==='CONNECTED')?'Tavily':S.cfg.registry.find(r=>r.id==='web_search'&&r.status==='CONNECTED')?'Anthropic':'not connected')+'.');
 }
 async function updateAgent(id,patch){ Object.assign(agent(id),patch); await api('/api/config',{action:'update_agent',id,patch}); }
 async function saveProject(p){ try{ await api('/api/projects',{project:p}); }catch(e){ ev('System','Save failed: '+e.message,'err'); } }
@@ -40,6 +41,8 @@ async function runTask(t){
   const task={task_id:uid(),parent_task_id:S.current?S.current.id:null,status:'RUNNING',created_at:Date.now(),...t};
   if(S.current) S.current.tasks.push(task); agentState(a.id,true);
   try{ const r=await api('/api/agent',task); (r.events||[]).forEach(e=>ev(a.name,e.text,e.kind)); task.status='COMPLETED'; task.completed_at=Date.now(); task.result={provider:r.provider,model:r.model,ms:r.ms,tools:r.tools,skills:r.skills_used,knowledge:r.knowledge_used,unavailable:r.unavailable_connectors,usage:r.usage};
+    if(S.current){ S.current.models=(S.current.models||[]).concat([r.provider+'/'+r.model]); if(!S.current.tools.includes(r.provider)) S.current.tools.push(r.provider); }
+    (r.attempts||[]).forEach(x=>ev('System',x.provider+' failed over: '+String(x.error).slice(0,90),'err'));
     if(r.unavailable_connectors&&r.unavailable_connectors.length) ev(a.name,'Not connected: '+r.unavailable_connectors.join(', ')+' — connect in Settings','err');
     return r; }
   catch(e){ task.status='FAILED'; task.error=e.message; task.completed_at=Date.now(); throw e; }
@@ -53,7 +56,7 @@ const text=b=>[{type:'text',text:b}];
 async function run(request){
   if(S.busy||!request.trim()) return;
   userMsg(request+(S.files.length?'\n['+S.files.map(f=>f.name).join(', ')+']':''));
-  const p={id:'p'+Date.now(),title:request.slice(0,80),brief:request,created:Date.now(),status:'PLANNING',type:'',plan:null,research:null,marketing:null,creative:null,qc:null,final:null,images:[],sources:[],agents:['orchestrator'],tools:['anthropic','knowledge'],activity:[],tasks:[],versions:[],decisions:[],summary:'',files:S.files.map(f=>f.name)};
+  const p={id:'p'+Date.now(),title:request.slice(0,80),brief:request,created:Date.now(),status:'PLANNING',type:'',plan:null,research:null,marketing:null,creative:null,qc:null,final:null,images:[],sources:[],agents:['orchestrator'],tools:['knowledge'],models:[],activity:[],tasks:[],versions:[],decisions:[],summary:'',files:S.files.map(f=>f.name)};
   S.current=p; S.view={mode:'work',project:p}; renderCenter(); newStream(); step('Understand','reading the request');
   try{
     ev('Orchestrator','Understanding request'); step('Knowledge','checking knowledge and project library'); ev('Orchestrator','Checking Joroots knowledge and project library');
@@ -68,9 +71,9 @@ async function run(request){
 
     if(p.plan.needs_research&&chain.includes('research')){
       step('Research','web search running'); ev('Orchestrator','Research Agent assigned','handoff'); p.agents.push('research');
-      const r=await runTask({assigned_agent:'research',objective:p.plan.research_question||request,context:p.plan.context_for_agents,web_search:true,expected_output:'JSON findings with sources',success_criteria:'every verified fact has a URL',
+      const r=await runTask({assigned_agent:'research',objective:p.plan.research_question||request,context:p.plan.context_for_agents,web_search:true,allowed_tools:['knowledge','web_search','tavily','gdrive'],expected_output:'JSON findings with sources',success_criteria:'every verified fact has a URL',
         input:text(`Research question: ${p.plan.research_question||request}\nAudience: ${p.plan.audience||''}\n\nUse web search (2–4 searches). Return JSON only:\n{"verified_facts":[{"fact":"with number and date","source":"publisher","url":"https://..."}],"derived_insights":["..."],"assumptions":["..."],"unknowns":["..."],"recommendations":["..."],"one_line_summary":"..."}`)});
-      p.research=r.json||{verified_facts:[],derived_insights:[],assumptions:[r.text],unknowns:[]}; p.sources=r.sources; if(r.tools.length) p.tools.push('web_search');
+      p.research=r.json||{verified_facts:[],derived_insights:[],assumptions:[r.text],unknowns:[]}; p.sources=r.sources; p.tools.push(r.tools.some(x=>x.tool==='web_search')?'web_search':'tavily');
       ev('Research Agent',(p.research.verified_facts||[]).length+' verified facts, '+p.sources.length+' sources collected','done'); renderCenter();
     }
 
@@ -99,7 +102,7 @@ async function run(request){
       if(ca.tools.includes('higgsfield')&&p.creative.image_prompt){
         if(hig&&hig.status==='CONNECTED'){
           step('Image','Higgsfield generating'); ev('Content & Creative Agent','Generating image with Higgsfield','tool'); p.tools.push('higgsfield');
-          try{ const g=await runTask({assigned_agent:'content-creative',objective:'Generate image',mcp:['higgsfield'],allowed_tools:['anthropic','knowledge','higgsfield'],expected_output:'JSON image urls',
+          try{ const g=await runTask({assigned_agent:'content-creative',objective:'Generate image',mcp:['higgsfield'],allowed_tools:['knowledge','higgsfield'],expected_output:'JSON image urls',
               input:text(`Generate ONE image with the Higgsfield image tool, aspect ratio 4:5, prompt:\n\n${p.creative.image_prompt}\n\nRules: call the tool; if it returns a job id, call jobs_wait until complete; then reply JSON only: {"images":["https://..."]} or {"images":[],"error":"reason"}.`),extra_system:'You must actually call the tools. Never describe an image instead of generating it.'});
             const urls=[...new Set(((g.json&&g.json.images)||[]).concat(g.images,(g.text.match(/https?:\/\/[^\s"'<>)\]]+/g)||[])))].filter(u=>/\.(png|jpe?g|webp)(\?|$)/i.test(u)||/higgsfield|cdn|media|storage/i.test(u));
             if(urls.length){ p.images=urls; ev('Content & Creative Agent','Image generated','done'); } else { p.creativeNote='Higgsfield returned no image: '+((g.json&&g.json.error)||g.text.slice(0,140)); ev('Content & Creative Agent',p.creativeNote,'err'); }
@@ -181,7 +184,7 @@ function projectHTML(p){
   if(p.sources.length) h+=`<h2>Sources</h2><ul class="list src">${p.sources.map(s=>`<li><a href="${esc(s.url)}" target="_blank">${esc(s.title)}</a></li>`).join('')}</ul>`;
   if(p.qc) h+=`<h2>Quality review</h2><div class="card">${p.qc.approved?'Approved.':'<span class="issue">Open issues:</span>'}<ul class="list">${(p.qc.issues||[]).map(x=>'<li>'+esc(x)+'</li>').join('')}</ul></div>`;
   if(p.status!=='PLANNING'&&p.status!=='RUNNING') h+=`<div class="share"><button class="btn ghost" id="approve">${p.approved?'Remove approval':'Approve'}</button><button class="btn ghost" id="regen">Regenerate</button><button class="btn ghost" id="export">Export JSON</button><button class="btn ghost" data-share="gmail">Email draft</button><button class="btn ghost" data-share="slack">Slack</button><button class="btn ghost" data-share="gdrive">Drive</button><button class="btn ghost" data-share="canva">Canva</button><button class="btn ghost" data-share="copy">Copy caption</button><span class="note" id="sharenote">${esc(p.shareNote||'')}</span></div>`;
-  h+=`<h2>Trace</h2><div class="card"><dl class="kv"><dt>Agents</dt><dd>${esc(p.agents.map(a=>agent(a)?agent(a).name:a).join(' → '))}</dd><dt>Tools</dt><dd>${esc([...new Set(p.tools)].map(t=>reg(t)?reg(t).name:t).join(', '))}</dd><dt>Tasks</dt><dd>${(p.tasks||[]).map(t=>esc(t.assigned_agent+' · '+t.status+(t.result?' · '+t.result.ms+'ms · '+t.result.provider:'')+(t.error?' · '+t.error:''))).join('<br>')}</dd>${p.versions.length?`<dt>Versions</dt><dd>${p.versions.length+1}</dd>`:''}</dl></div>`;
+  h+=`<h2>Trace</h2><div class="card"><dl class="kv"><dt>Agents</dt><dd>${esc(p.agents.map(a=>agent(a)?agent(a).name:a).join(' → '))}</dd><dt>Tools</dt><dd>${esc([...new Set(p.tools)].map(t=>reg(t)?reg(t).name:t).join(', '))}</dd><dt>Tasks</dt><dd>${(p.tasks||[]).map(t=>esc(t.assigned_agent+' · '+t.status+(t.result?' · '+t.result.provider+'/'+t.result.model+' · '+t.result.ms+'ms':'')+(t.error?' · '+t.error:''))).join('<br>')}</dd>${p.models&&p.models.length?`<dt>Models used</dt><dd>${esc([...new Set(p.models)].join(', '))}</dd>`:''}${p.versions.length?`<dt>Versions</dt><dd>${p.versions.length+1}</dd>`:''}</dl></div>`;
   h+=`<div class="activity card"><h3>Activity</h3>${p.activity.map(e=>`<div class="ev ${e.kind}"><span class="who">${esc(e.who)}</span><span class="t">${esc(e.text)}</span></div>`).join('')}</div>`;
   return h+'</div>';
 }
@@ -202,12 +205,13 @@ function employeeHTML(id){
   <div class="grid2">
   <section><h2>Skills</h2>${installed.map(([k,s])=>`<div class="tool"><div class="n">${esc(s.name)}<small>${esc(s.body.slice(0,100))}…</small></div><button class="btn ghost sm" data-rm="${k}">Remove</button></div>`).join('')||'<div class="meta">No skills installed</div>'}
     <div class="row" style="margin-top:8px"><select class="add" id="addskill"><option value="">Add skill…</option>${available.map(([k,s])=>`<option value="${k}">${esc(s.name)} (${s.department})</option>`).join('')}</select></div></section>
-  <section><h2>Tools <span class="meta">(least privilege — only what this employee needs)</span></h2>${S.cfg.registry.filter(r=>r.kind!=='model'||r.id==='anthropic').map(r=>`<div class="tool"><div class="n">${esc(r.name)}<small>${esc(r.status)}${r.missing&&r.missing.length?' · needs '+esc(r.missing.join(', ')):''}${r.notes?' · '+esc(r.notes):''}</small></div><button class="sw ${a.tools.includes(r.id)?'on':''}" data-tool="${r.id}"></button></div>`).join('')}</section>
+  <section><h2>Tools <span class="meta">(least privilege — only what this employee needs)</span></h2>${S.cfg.registry.filter(r=>r.kind!=='model').map(r=>`<div class="tool"><div class="n">${esc(r.name)}<small>${esc(r.status)}${r.missing&&r.missing.length?' · needs '+esc(r.missing.join(', ')):''}${r.notes?' · '+esc(r.notes):''}</small></div><button class="sw ${a.tools.includes(r.id)?'on':''}" data-tool="${r.id}"></button></div>`).join('')}</section>
   <section><h2>Knowledge</h2>${cats.map(k=>`<div class="tool"><div class="n">${esc(k)}<small>${S.cfg.knowledge.filter(x=>x.category===k).map(x=>esc(x.title)).join(' · ')}</small></div><button class="sw ${a.knowledge.includes(k)?'on':''}" data-know="${k}"></button></div>`).join('')}</section>
   <section><h2>Projects (${projs.length})</h2>${projs.slice(0,10).map(p=>`<button class="proj" data-open="${p.id}"><div class="t">${esc(p.title)}</div><div class="d">${esc(p.type)} · ${esc(p.status||'')} · ${new Date(p.created).toLocaleDateString()}</div></button>`).join('')||'<div class="meta">No projects yet</div>'}</section>
   </div>
   <section><h2>Activity</h2><div class="activity">${acts.map(e=>`<div class="ev ${e.kind}"><span class="who">${new Date(e.t).toLocaleTimeString()}</span><span class="t">${esc(e.text)}</span></div>`).join('')||'<div class="meta">Nothing yet this session</div>'}</div></section>
-  <section><h2>Configuration</h2><div class="form"><label>Model provider</label><select id="prov"><option value="anthropic" ${a.model&&a.model.provider==='anthropic'?'selected':''}>Anthropic (Claude)</option><option value="openai" ${a.model&&a.model.provider==='openai'?'selected':''}>OpenAI</option></select>
+  <section><h2>Configuration</h2><div class="form"><label>Model provider</label><select id="prov"><option value="auto" ${!a.model||a.model.provider==='auto'?'selected':''}>Auto — first available, with fallback</option>${S.cfg.providers.map(p=>`<option value="${p.id}" ${a.model&&a.model.provider===p.id?'selected':''} ${p.available?'':'disabled'}>${esc(p.name)}${p.available?'':' — no key'}</option>`).join('')}</select>
+  <div class="meta" style="margin-top:4px">Fallback order: ${esc(S.cfg.providers.filter(p=>p.available).map(p=>p.name).join(' → ')||'none configured')}. Connector tools (Higgsfield, Canva, Gmail, Slack, Drive) need Anthropic.</div>
   <label>Instructions</label><textarea id="instr" style="min-height:140px">${esc(a.instructions)}</textarea></div>
   <dl class="kv" style="margin-top:10px"><dt>Permissions</dt><dd>${esc(JSON.stringify(a.permissions||{}))}</dd></dl>
   <div class="row" style="margin-top:10px"><button class="btn" id="saveinstr">Save configuration</button><span class="meta" id="savedmsg"></span></div></section></div>`;
@@ -230,7 +234,7 @@ function addHTML(){
   return `<div class="ws prof"><button class="btn ghost sm" id="back">← Workspace</button><h1 class="disp" style="margin-top:14px">Add employee</h1><div class="form">
   <label>Name</label><input id="f-name" placeholder="Proposal Writer"><label>Department</label><select id="f-dept">${S.cfg.departments.map(d=>`<option value="${d.id}">${esc(d.name)}</option>`).join('')}<option value="__new">New department…</option></select>
   <label>Role</label><input id="f-role" placeholder="Writes tender proposals from the capability base"><label>Mission</label><input id="f-mission"><label>Responsibilities</label><textarea id="f-resp"></textarea>
-  <label>Model</label><select id="f-model"><option value="anthropic">Anthropic (Claude)</option><option value="openai">OpenAI</option></select>
+  <label>Model</label><select id="f-model"><option value="auto">Auto — first available</option>${S.cfg.providers.map(p=>`<option value="${p.id}" ${p.available?'':'disabled'}>${esc(p.name)}${p.available?'':' — no key'}</option>`).join('')}</select>
   <label>Skills</label><div>${Object.entries(S.cfg.skills).map(([k,s])=>`<label class="chk"><input type="checkbox" name="sk" value="${k}"> ${esc(s.name)}</label>`).join('')}</div>
   <label>Tools</label><div>${S.cfg.registry.filter(r=>r.kind!=='model').map(r=>`<label class="chk"><input type="checkbox" name="tl" value="${r.id}" ${r.id==='knowledge'?'checked':''}> ${esc(r.name)}</label>`).join('')}</div>
   <label>Knowledge access</label><div>${[...new Set(S.cfg.knowledge.map(k=>k.category))].map(k=>`<label class="chk"><input type="checkbox" name="kn" value="${k}" ${['company','brand'].includes(k)?'checked':''}> ${esc(k)}</label>`).join('')}</div>
@@ -242,7 +246,7 @@ function bindAdd(){
   $('#f-save').onclick=async()=>{ const g=id=>$('#'+id).value.trim(); const ck=n=>[...document.querySelectorAll('input[name="'+n+'"]:checked')].map(x=>x.value);
     let dept=g('f-dept'); if(dept==='__new'){ dept=(prompt('New department id (e.g. sales)')||'').toLowerCase().replace(/[^a-z0-9]+/g,'-'); if(!dept) return; }
     if(!g('f-name')) return $('#f-msg').textContent='Name is required';
-    const a={name:g('f-name'),department:dept,role:g('f-role'),mission:g('f-mission'),responsibilities:g('f-resp'),model:{provider:g('f-model'),model:'default',fallback:'openai'},skills:ck('sk'),tools:['anthropic'].concat(ck('tl')),knowledge:ck('kn'),permissions:{can_send_email:$('#f-email').checked,can_generate_media:$('#f-media').checked,can_search_web:$('#f-web').checked}};
+    const a={name:g('f-name'),department:dept,role:g('f-role'),mission:g('f-mission'),responsibilities:g('f-resp'),model:{provider:g('f-model'),model:'default',fallback:'auto'},skills:ck('sk'),tools:['anthropic'].concat(ck('tl')),knowledge:ck('kn'),permissions:{can_send_email:$('#f-email').checked,can_generate_media:$('#f-media').checked,can_search_web:$('#f-web').checked}};
     try{ const r=await api('/api/config',{action:'add_agent',agent:a}); await loadCfg(); renderRight(); S.view={mode:'employee',id:r.agent.id}; renderCenter(); }catch(e){ $('#f-msg').textContent=e.message; } };
 }
 

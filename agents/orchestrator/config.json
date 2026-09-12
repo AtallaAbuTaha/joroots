@@ -5,9 +5,9 @@
   "role": "Chief of staff",
   "status": "active",
   "model": {
-    "provider": "anthropic",
+    "provider": "auto",
     "model": "default",
-    "fallback": "openai",
+    "fallback": "auto",
     "temperature": 0.4
   },
   "skills": [
@@ -16,7 +16,6 @@
     "ops.project-memory"
   ],
   "tools": [
-    "anthropic",
     "knowledge",
     "kv",
     "gmail",

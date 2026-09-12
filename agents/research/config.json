@@ -5,9 +5,9 @@
   "role": "Analyst",
   "status": "active",
   "model": {
-    "provider": "anthropic",
+    "provider": "auto",
     "model": "default",
-    "fallback": "openai",
+    "fallback": "auto",
     "temperature": 0.4
   },
   "skills": [
@@ -19,9 +19,9 @@
     "research.insight-extraction"
   ],
   "tools": [
-    "anthropic",
-    "web_search",
     "knowledge",
+    "web_search",
+    "tavily",
     "gdrive"
   ],
   "knowledge": [

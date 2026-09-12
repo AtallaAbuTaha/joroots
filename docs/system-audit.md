@@ -17,3 +17,15 @@
 
 ## Deployment state
 Local `next build` passes. Local smoke test passes with no credentials: honest MISSING_CREDENTIALS states, Add Employee registers a live agent and department, project save works in memory.
+
+## Update — 13 Sep 2026: multi-provider layer
+
+Added a model provider abstraction with a single OpenAI-compatible adapter (`lib/providers/openai-compat.ts`) covering Groq, Gemini (OpenAI shim), OpenRouter, Mistral, DeepSeek and OpenAI; Anthropic keeps its own adapter because it alone carries MCP tools and native web search.
+
+- Default chain: Groq → Gemini → Anthropic → OpenRouter → Mistral → DeepSeek → OpenAI. Override with `PROVIDER_CHAIN`. Per-agent override in the employee profile (default "auto").
+- Failover: retry once on 429/5xx with backoff, then the next provider. Every attempt is logged and surfaced in the activity stream. If all fail, the task fails loudly — no fabricated output.
+- JSON mode is requested via `response_format` and retried without it if a route rejects it.
+- Search: `lib/search/index.ts` (Tavily). Anthropic uses its native server-side search; every other provider gets Tavily results injected as `<search_results>` evidence, wrapped with instructions to ignore embedded instructions (prompt-injection defense, matching the Joroots `<captured_page>` convention). With neither connected, the agent is told it has no search and must not invent sources.
+- MCP gating: tasks requiring connector tools resolve only to Anthropic and return a clear error naming the missing key rather than silently dropping the tool.
+
+Provider selection rationale (research, Sept 2026): Groq is the only free tier that is simultaneously private (no training on inputs), OpenAI-compatible, and fast enough for an agent loop; Gemini's free tier trains on inputs and is barred for EU/UK production, so it is wired but flagged as paid-for-confidential-work. GitHub Models was retired July 2026 and Cerebras dropped its free tier, so neither is included.

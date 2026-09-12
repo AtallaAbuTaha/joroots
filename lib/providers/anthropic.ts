@@ -1,11 +1,12 @@
 import { ModelProvider, ModelCall, NormalizedResult, extractJSON } from './types';
 export const anthropic: ModelProvider = {
-  id: 'anthropic',
+  id: 'anthropic', name: 'Anthropic (Claude)', supportsMcp: true, supportsNativeSearch: true,
   available: () => !!process.env.ANTHROPIC_API_KEY,
   async call(c: ModelCall): Promise<NormalizedResult> {
     const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
     const started = Date.now();
     const body: any = { model, max_tokens: c.maxTokens || 2000, system: c.system, messages: [{ role: 'user', content: c.content }] };
+    if (typeof c.temperature === 'number') body.temperature = c.temperature;
     if (c.webSearch) body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 4 }];
     const headers: any = { 'content-type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' };
     if (c.mcpServers?.length) { body.mcp_servers = c.mcpServers; headers['anthropic-beta'] = 'mcp-client-2025-04-04'; }
