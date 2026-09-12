@@ -4,8 +4,13 @@ export default function Page() {
   return (<>
     <div id="banner" className="banner" style={{display:'none'}}></div>
 <div id="top">
-  <div className="brand"><b className="disp">JOROOTS</b><span>AI workforce · v0.1</span></div>
-  <div id="prog"><div className="bar" id="bar"></div><div className="lbl" id="stat"><i></i>Idle</div></div>
+  <div className="brand"><b className="disp">JOROOTS</b><span>AI workforce · v0.2</span></div>
+  <div id="prog">
+    <div className="bar" id="bar"></div>
+    <div className="lbl" id="stat">Idle</div>
+    <button className="btn verm sm" id="keyslink">Keys</button>
+    <a className="set" href="/settings">Settings</a>
+  </div>
 </div>
 <div id="app">
   <div className="col" id="left">
