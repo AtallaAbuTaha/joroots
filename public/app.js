@@ -6,10 +6,10 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const agent=id=>S.cfg.agents.find(a=>a.id===id);
 const reg=id=>S.cfg.registry.find(r=>r.id===id);
-const KEY_ENV={groq:'GROQ_API_KEY',gemini:'GEMINI_API_KEY',anthropic:'ANTHROPIC_API_KEY',openrouter:'OPENROUTER_API_KEY',mistral:'MISTRAL_API_KEY',deepseek:'DEEPSEEK_API_KEY',openai:'OPENAI_API_KEY',tavily:'TAVILY_API_KEY',higgsfield:'HIGGSFIELD_MCP_TOKEN',canva:'CANVA_MCP_TOKEN',slack:'SLACK_MCP_TOKEN',gmail:'GMAIL_MCP_TOKEN',gdrive:'GDRIVE_MCP_TOKEN'};
+const KEY_ENV={groq:'GROQ_API_KEY',gemini:'GEMINI_API_KEY',anthropic:'ANTHROPIC_API_KEY',openrouter:'OPENROUTER_API_KEY',mistral:'MISTRAL_API_KEY',deepseek:'DEEPSEEK_API_KEY',openai:'OPENAI_API_KEY',tavily:'TAVILY_API_KEY',higgsfield:'HIGGSFIELD_API_KEY_ID',canva:'CANVA_MCP_TOKEN',slack:'SLACK_MCP_TOKEN',gmail:'GMAIL_MCP_TOKEN',gdrive:'GDRIVE_MCP_TOKEN'};
 function localKeys(){ try{ return JSON.parse(localStorage.getItem('jr-keys')||'{}'); }catch(e){ return {}; } }
 function setLocalKeys(o){ try{ localStorage.setItem('jr-keys',JSON.stringify(o)); }catch(e){} }
-const hasKey=id=>!!localKeys()[KEY_ENV[id]];
+const hasKey=id=>id==='higgsfield'?!!(localKeys().HIGGSFIELD_API_KEY_ID&&localKeys().HIGGSFIELD_API_KEY_SECRET):!!localKeys()[KEY_ENV[id]];
 const providerReady=p=>p.available||hasKey(p.id);
 const connReady=r=>r.status==='CONNECTED'||hasKey(r.id);
 const api=async(url,body)=>{ const r=await fetch(url,body?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:undefined); const d=await r.json(); if(!r.ok||d.error) throw new Error(d.error||('HTTP '+r.status)); return d; };
@@ -106,14 +106,15 @@ async function run(request){
       p.creative=c.json||{concept:c.text}; ev('Content & Creative Agent','Brief ready: '+(p.creative.concept||''),'done'); renderCenter();
       const ca=agent('content-creative'), hig=reg('higgsfield');
       if(ca.tools.includes('higgsfield')&&p.creative.image_prompt){
-        if(hig&&connReady(hig)){
+        if(connReady(hig)){
           step('Image','Higgsfield generating'); ev('Content & Creative Agent','Generating image with Higgsfield','tool'); p.tools.push('higgsfield');
-          try{ const g=await runTask({assigned_agent:'content-creative',objective:'Generate image',mcp:['higgsfield'],allowed_tools:['knowledge','higgsfield'],expected_output:'JSON image urls',
-              input:text(`Generate ONE image with the Higgsfield image tool, aspect ratio 4:5, prompt:\n\n${p.creative.image_prompt}\n\nRules: call the tool; if it returns a job id, call jobs_wait until complete; then reply JSON only: {"images":["https://..."]} or {"images":[],"error":"reason"}.`),extra_system:'You must actually call the tools. Never describe an image instead of generating it.'});
-            const urls=[...new Set(((g.json&&g.json.images)||[]).concat(g.images,(g.text.match(/https?:\/\/[^\s"'<>)\]]+/g)||[])))].filter(u=>/\.(png|jpe?g|webp)(\?|$)/i.test(u)||/higgsfield|cdn|media|storage/i.test(u));
-            if(urls.length){ p.images=urls; ev('Content & Creative Agent','Image generated','done'); } else { p.creativeNote='Higgsfield returned no image: '+((g.json&&g.json.error)||g.text.slice(0,140)); ev('Content & Creative Agent',p.creativeNote,'err'); }
+          try{
+            const g=await api('/api/image',{prompt:p.creative.image_prompt,aspect_ratio:'4:5',keys:localKeys()});
+            if(g.images&&g.images.length){ p.images=g.images; ev('Content & Creative Agent','Image generated in '+Math.round((g.ms||0)/1000)+'s','done'); }
+            else if(g.status==='in_progress'){ p.imageRequestId=g.request_id; p.creativeNote='Still generating — press Check image below.'; ev('Content & Creative Agent','Generation still running — resume with Check image','err'); }
+            else { p.creativeNote='Higgsfield: '+(g.error||g.status); ev('Content & Creative Agent',p.creativeNote,'err'); }
           }catch(e){ p.creativeNote='Image generation failed: '+e.message; ev('Content & Creative Agent',p.creativeNote,'err'); }
-        } else { p.creativeNote='Connect Higgsfield to generate this asset.'; ev('Content & Creative Agent','Higgsfield not connected — production prompt delivered instead','err'); }
+        } else { p.creativeNote='Add your Higgsfield key ID and secret in Keys to generate this asset.'; ev('Content & Creative Agent','Higgsfield not connected — production prompt delivered instead','err'); }
         renderCenter();
       }
     }
@@ -170,6 +171,10 @@ function renderCenter(){
   w.querySelectorAll('[data-share]').forEach(b=>b.onclick=()=>share(v.project,b.dataset.share));
   const rg=w.querySelector('#regen'); if(rg) rg.onclick=()=>run(v.project.brief);
   const ap=w.querySelector('#approve'); if(ap) ap.onclick=async()=>{ v.project.approved=!v.project.approved; v.project.decisions.push({at:Date.now(),by:'user',decision:v.project.approved?'approved':'approval removed'}); await saveProject(v.project); renderCenter(); };
+  const ci=w.querySelector('#checkimg'); if(ci) ci.onclick=async()=>{ ci.textContent='Checking…';
+    try{ const g=await api('/api/image',{request_id:v.project.imageRequestId,keys:localKeys()});
+      if(g.images&&g.images.length){ v.project.images=g.images; v.project.creativeNote=''; await saveProject(v.project); renderCenter(); }
+      else { ci.textContent='Still '+g.status+' — check again'; } }catch(e){ ci.textContent='Failed: '+e.message; } };
   const ex=w.querySelector('#export'); if(ex) ex.onclick=()=>{ const blob=new Blob([JSON.stringify(v.project,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=v.project.id+'.json'; a.click(); };
 }
 function projectHTML(p){
@@ -190,7 +195,7 @@ function projectHTML(p){
     <div><div class="card"><h3>Derived insights</h3><ul class="list">${(r.derived_insights||[]).map(x=>'<li>'+esc(x)+'</li>').join('')||'<li>None</li>'}</ul></div><div class="card"><h3>Assumptions <span class="tag a">UNVERIFIED</span></h3><ul class="list">${(r.assumptions||[]).map(x=>'<li>'+esc(x)+'</li>').join('')||'<li>None</li>'}</ul></div><div class="card"><h3>Unknowns</h3><ul class="list">${(r.unknowns||r.missing||[]).map(x=>'<li>'+esc(x)+'</li>').join('')||'<li>None</li>'}</ul></div>${r.recommendations&&r.recommendations.length?`<div class="card"><h3>Recommendations</h3><ul class="list">${r.recommendations.map(x=>'<li>'+esc(x)+'</li>').join('')}</ul></div>`:''}</div></div>`;
   if(p.sources.length) h+=`<h2>Sources</h2><ul class="list src">${p.sources.map(s=>`<li><a href="${esc(s.url)}" target="_blank">${esc(s.title)}</a></li>`).join('')}</ul>`;
   if(p.qc) h+=`<h2>Quality review</h2><div class="card">${p.qc.approved?'Approved.':'<span class="issue">Open issues:</span>'}<ul class="list">${(p.qc.issues||[]).map(x=>'<li>'+esc(x)+'</li>').join('')}</ul></div>`;
-  if(p.status!=='PLANNING'&&p.status!=='RUNNING') h+=`<div class="share"><button class="btn ghost" id="approve">${p.approved?'Remove approval':'Approve'}</button><button class="btn ghost" id="regen">Regenerate</button><button class="btn ghost" id="export">Export JSON</button><button class="btn ghost" data-share="gmail">Email draft</button><button class="btn ghost" data-share="slack">Slack</button><button class="btn ghost" data-share="gdrive">Drive</button><button class="btn ghost" data-share="canva">Canva</button><button class="btn ghost" data-share="copy">Copy caption</button><span class="note" id="sharenote">${esc(p.shareNote||'')}</span></div>`;
+  if(p.status!=='PLANNING'&&p.status!=='RUNNING') h+=`<div class="share"><button class="btn ghost" id="approve">${p.approved?'Remove approval':'Approve'}</button><button class="btn ghost" id="regen">Regenerate</button><button class="btn ghost" id="export">Export JSON</button>${p.imageRequestId&&!p.images.length?'<button class="btn verm" id="checkimg">Check image</button>':''}<button class="btn ghost" data-share="gmail">Email draft</button><button class="btn ghost" data-share="slack">Slack</button><button class="btn ghost" data-share="gdrive">Drive</button><button class="btn ghost" data-share="canva">Canva</button><button class="btn ghost" data-share="copy">Copy caption</button><span class="note" id="sharenote">${esc(p.shareNote||'')}</span></div>`;
   h+=`<h2>Trace</h2><div class="card"><dl class="kv"><dt>Agents</dt><dd>${esc(p.agents.map(a=>agent(a)?agent(a).name:a).join(' → '))}</dd><dt>Tools</dt><dd>${esc([...new Set(p.tools)].map(t=>reg(t)?reg(t).name:t).join(', '))}</dd><dt>Tasks</dt><dd>${(p.tasks||[]).map(t=>esc(t.assigned_agent+' · '+t.status+(t.result?' · '+t.result.provider+'/'+t.result.model+' · '+t.result.ms+'ms':'')+(t.error?' · '+t.error:''))).join('<br>')}</dd>${p.models&&p.models.length?`<dt>Models used</dt><dd>${esc([...new Set(p.models)].join(', '))}</dd>`:''}${p.versions.length?`<dt>Versions</dt><dd>${p.versions.length+1}</dd>`:''}</dl></div>`;
   h+=`<div class="activity card"><h3>Activity</h3>${p.activity.map(e=>`<div class="ev ${e.kind}"><span class="who">${esc(e.who)}</span><span class="t">${esc(e.text)}</span></div>`).join('')}</div>`;
   return h+'</div>';
@@ -239,23 +244,25 @@ function openProject(id){ const p=S.projects.find(x=>x.id===id); if(!p) return; 
 // ---- keys (browser-local)
 function keysHTML(){
   const k=localKeys(); const mask=v=>v?v.slice(0,6)+'…'+v.slice(-4):'';
-  const rows=[['groq','Groq — free, no card, start here','console.groq.com'],['tavily','Tavily — web search for Research, 1,000/month free','tavily.com'],['gemini','Google Gemini — free tier trains on your inputs; use a billing-enabled key for client work','aistudio.google.com'],['anthropic','Anthropic — needed for image generation and the Gmail/Slack/Drive/Canva buttons','console.anthropic.com'],['openrouter','OpenRouter — fallback','openrouter.ai'],['mistral','Mistral — EU hosting','console.mistral.ai']];
+  const rows=[['groq','Groq — free, no card, start here','console.groq.com'],['tavily','Tavily — web search for Research, 1,000/month free','tavily.com'],['higgsfield_id','Higgsfield key ID — image generation','cloud.higgsfield.ai'],['higgsfield_secret','Higgsfield key secret','cloud.higgsfield.ai'],['gemini','Google Gemini — free tier trains on your inputs; use a billing-enabled key for client work','aistudio.google.com'],['anthropic','Anthropic — needed for image generation and the Gmail/Slack/Drive/Canva buttons','console.anthropic.com'],['openrouter','OpenRouter — fallback','openrouter.ai'],['mistral','Mistral — EU hosting','console.mistral.ai']];
+  const ENV={...KEY_ENV,higgsfield_id:'HIGGSFIELD_API_KEY_ID',higgsfield_secret:'HIGGSFIELD_API_KEY_SECRET'};
   return `<div class="ws prof"><button class="btn ghost sm" id="back">← Workspace</button>
   <h1 class="disp" style="margin-top:14px">Keys</h1>
   <p class="meta">Pasted here, a key is saved in this browser only and sent with your own requests. It is never written to the repo and never stored on the server. Good for testing on your own machine. For the team, or for anything permanent, put the same key in Vercel → Settings → Environment Variables instead — then you can clear it here.</p>
   <div class="form">${rows.map(([id,label,where])=>`<label>${esc(label)} <span class="meta">· ${esc(where)}</span></label>
-    <div class="row"><input id="k-${id}" type="password" placeholder="${esc(KEY_ENV[id])}" value="${esc(k[KEY_ENV[id]]||'')}" style="flex:1">
-    <button class="btn ghost sm" data-test="${id}">Test</button></div>
-    <div class="meta" id="m-${id}">${k[KEY_ENV[id]]?'saved in this browser · '+esc(mask(k[KEY_ENV[id]])):''}</div>`).join('')}
+    <div class="row"><input id="k-${id}" type="password" placeholder="${esc(ENV[id])}" value="${esc(k[ENV[id]]||'')}" style="flex:1">
+    ${id==='higgsfield_secret'?'<button class="btn ghost sm" data-test="higgsfield">Test</button>':id==='higgsfield_id'?'':`<button class="btn ghost sm" data-test="${id}">Test</button>`}</div>
+    <div class="meta" id="m-${id}">${k[ENV[id]]?'saved in this browser · '+esc(mask(k[ENV[id]])):''}</div>`).join('')}
   <div class="row" style="margin-top:16px"><button class="btn" id="ksave">Save keys</button><button class="btn ghost" id="kclear">Clear all</button><span class="meta" id="kmsg"></span></div></div></div>`;
 }
 function bindKeys(){
-  const w=$('#ws'); const ids=['groq','tavily','gemini','anthropic','openrouter','mistral'];
+  const w=$('#ws'); const ENV={...KEY_ENV,higgsfield_id:'HIGGSFIELD_API_KEY_ID',higgsfield_secret:'HIGGSFIELD_API_KEY_SECRET'};
+  const ids=['groq','tavily','higgsfield_id','higgsfield_secret','gemini','anthropic','openrouter','mistral'];
   $('#back').onclick=()=>{ S.view={mode:S.current?'work':'empty',project:S.current}; renderCenter(); };
-  const collect=()=>{ const o=localKeys(); ids.forEach(id=>{ const v=$('#k-'+id).value.trim(); if(v) o[KEY_ENV[id]]=v; else delete o[KEY_ENV[id]]; }); return o; };
+  const collect=()=>{ const o=localKeys(); ids.forEach(id=>{ const el=$('#k-'+id); if(!el) return; const v=el.value.trim(); if(v) o[ENV[id]]=v; else delete o[ENV[id]]; }); return o; };
   $('#ksave').onclick=()=>{ setLocalKeys(collect()); $('#kmsg').textContent='Saved in this browser'; $('#banner').style.display='none'; renderRight(); };
   $('#kclear').onclick=()=>{ setLocalKeys({}); renderCenter(); renderRight(); };
-  w.querySelectorAll('[data-test]').forEach(b=>b.onclick=async()=>{ const id=b.dataset.test, m=$('#m-'+id); m.textContent='Testing…'; setLocalKeys(collect());
+  w.querySelectorAll('[data-test]').forEach(b=>b.onclick=async()=>{ const id=b.dataset.test, m=$('#m-'+(id==='higgsfield'?'higgsfield_secret':id)); m.textContent=id==='higgsfield'?'Generating a test image, up to 40s…':'Testing…'; setLocalKeys(collect());
     try{ const r=await api('/api/connectors/test',{id,keys:localKeys()}); m.textContent=(r.ok?'Works — ':'Failed — ')+r.message; if(r.ok) $('#banner').style.display='none'; }catch(e){ m.textContent='Failed — '+e.message; } });
 }
 

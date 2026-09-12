@@ -11,6 +11,11 @@ export async function testConnector(id: string, keys?: Record<string, string>): 
       const reply = (r.text || '').replace(/\s+/g, ' ').trim();
       return { ok: true, message: r.model + ' · ' + r.ms + 'ms' + (reply ? ' · replied "' + reply.slice(0, 60) + '"' : ' · connected (empty reply, harmless on a test ping)') };
     }
+    if (c.id === 'higgsfield') { const { generateImage } = await import('../media/higgsfield');
+      const r = await generateImage('a plain grey concrete texture, flat lighting', { keys, budgetMs: 40000 });
+      if (r.images.length) return { ok: true, message: 'Image generated in ' + Math.round(r.ms / 1000) + 's · ' + r.model };
+      if (r.status === 'in_progress') return { ok: true, message: 'Key works — generation still running (request ' + r.request_id + ')' };
+      return { ok: false, message: r.error || r.status }; }
     if (c.id === 'tavily') { const { tavilySearch } = await import('../search'); const r = await tavilySearch('Joroots Amman', 2, keys); return { ok: r.hits.length > 0, message: r.hits.length + ' results — search is live' }; }
     if (c.kind === 'storage') { const r = await fetch(process.env.KV_REST_API_URL + '/ping', { headers: { authorization: 'Bearer ' + process.env.KV_REST_API_TOKEN } }); return { ok: r.ok, message: r.ok ? 'Upstash reachable' : 'HTTP ' + r.status }; }
     if (c.kind === 'mcp') { const p = byId('anthropic')!; if (!p.available(keys)) return { ok: false, message: 'Connector tools need an Anthropic key (MCP rides on the Anthropic API)' };

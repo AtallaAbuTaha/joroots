@@ -34,7 +34,8 @@ docs/system-audit.md                 audit and reuse decisions
 | `GROQ_API_KEY` | **start here** — all four agents | Free, no card, does not train on your inputs | console.groq.com |
 | `TAVILY_API_KEY` | web search for the Research Agent | 1,000 searches/month free, no card | tavily.com |
 | `GEMINI_API_KEY` | quality tier, 1M context, vision | Free tier **trains on your inputs** and is barred for EU/UK production — enable billing for client-confidential work | aistudio.google.com |
-| `ANTHROPIC_API_KEY` | connector tools (Higgsfield, Canva, Gmail, Slack, Drive) + native web search | Paid | console.anthropic.com |
+| `HIGGSFIELD_API_KEY_ID` + `HIGGSFIELD_API_KEY_SECRET` | image generation, via Higgsfield's own REST API — no Anthropic key needed | Paid by credits | cloud.higgsfield.ai |
+| `ANTHROPIC_API_KEY` | Canva/Gmail/Slack/Drive share buttons + native web search | Paid | console.anthropic.com |
 | `OPENROUTER_API_KEY` | breadth fallback | Free routes may train on inputs unless disabled in account settings | openrouter.ai |
 | `MISTRAL_API_KEY` | EU hosting, zero-retention option | Free evaluation tier | console.mistral.ai |
 | `DEEPSEEK_API_KEY` | cheap fallback — data processed in China | Paid, very cheap | platform.deepseek.com |

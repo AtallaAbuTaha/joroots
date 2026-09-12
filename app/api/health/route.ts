@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'; import { providerStatus } from '../../../lib/providers'; import { persistent } from '../../../lib/repo/store'; import { registryView } from '../../../lib/connectors/registry';
 export const dynamic = 'force-dynamic';
-const EXPECTED = ['GROQ_API_KEY','GEMINI_API_KEY','ANTHROPIC_API_KEY','OPENROUTER_API_KEY','MISTRAL_API_KEY','DEEPSEEK_API_KEY','OPENAI_API_KEY','TAVILY_API_KEY','KV_REST_API_URL','KV_REST_API_TOKEN','HIGGSFIELD_MCP_TOKEN','CANVA_MCP_TOKEN','SLACK_MCP_TOKEN','GMAIL_MCP_TOKEN','GDRIVE_MCP_TOKEN'];
+const EXPECTED = ['GROQ_API_KEY','GEMINI_API_KEY','ANTHROPIC_API_KEY','OPENROUTER_API_KEY','MISTRAL_API_KEY','DEEPSEEK_API_KEY','OPENAI_API_KEY','TAVILY_API_KEY','KV_REST_API_URL','KV_REST_API_TOKEN','HIGGSFIELD_API_KEY_ID','HIGGSFIELD_API_KEY_SECRET','CANVA_MCP_TOKEN','SLACK_MCP_TOKEN','GMAIL_MCP_TOKEN','GDRIVE_MCP_TOKEN'];
 export async function GET(req: Request) {
   const reg = registryView();
   const base: any = { ok: true, version: '0.2.0', providers: providerStatus(), persistent: persistent(), connected: reg.filter(c => c.status === 'CONNECTED').map(c => c.id), missing: reg.filter(c => c.status !== 'CONNECTED').map(c => c.id) };
