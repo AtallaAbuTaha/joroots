@@ -19,14 +19,25 @@ const api=async(url,body)=>{ const r=await fetch(url,body?{method:'POST',headers
 const uid=()=>'t'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
 
 async function loadCfg(){ S.cfg=await api('/api/config'); S.persistent=S.cfg.persistent; }
+const PROD_URL='https://joroots-workforce.vercel.app';
+function pinnedDeployment(){ const h=location.hostname; return /^joroots-workforce-[a-z0-9]{6,}-/.test(h); }
+function envWarnings(){
+  const out=[];
+  if(pinnedDeployment()) out.push('<b>You are on a frozen deployment URL</b> ('+esc(location.hostname)+'). It will never update. Open <a href="'+PROD_URL+'" style="text-decoration:underline">'+PROD_URL+'</a> instead.');
+  if(!storageOK()) out.push('<b>This browser is blocking local storage</b> (private/incognito window). Keys cannot be saved here — use a normal window, or set them in Vercel.');
+  return out;
+}
 async function boot(){
   try{ await loadCfg(); const p=await api('/api/projects'); S.projects=p.projects; }catch(e){ sysMsg('Could not load config: '+e.message); return; }
-  const noModel=!S.cfg.providers.some(providerReady); const b=$('#banner');
-  if(noModel){ b.style.display='block'; b.innerHTML='No model connected yet. <b>Press Keys in the top bar</b> and paste a Groq key (free, no card, console.groq.com) — it stays in this browser. For the whole team, add GROQ_API_KEY in Vercel instead.'; }
+  const b=$('#banner'); const warn=envWarnings();
+  if(warn.length){ b.style.display='block'; b.style.background='#F7D9CF'; b.style.color='#7A2A12'; b.innerHTML=warn.join('<br>'); }
+  const noModel=!S.cfg.providers.some(providerReady);
+  if(warn.length){ /* env warning takes priority over the key hint */ }
+  else if(noModel){ b.style.display='block'; b.innerHTML='No model connected yet. <b>Press Keys in the top bar</b> and paste a Groq key (free, no card, console.groq.com) — it stays in this browser. For the whole team, add GROQ_API_KEY in Vercel instead.'; }
   else if(!S.persistent){ b.style.display='block'; b.textContent='Running without persistent storage — projects are lost on redeploy. Add KV_REST_API_URL and KV_REST_API_TOKEN (Upstash) to keep them.'; }
   renderRight(); renderCenter(); updateKeysBadge();
   const av=S.cfg.providers.filter(providerReady);
-  sysMsg('Ready. '+S.cfg.agents.filter(a=>a.status==='active').length+' employees active, '+S.projects.length+' projects. Models: '+(av.length?av.map(p=>p.name).join(' → '):'none yet')+'. Search: '+(hasKey('tavily')||S.cfg.registry.find(r=>r.id==='tavily'&&r.status==='CONNECTED')?'Tavily':hasKey('anthropic')||S.cfg.registry.find(r=>r.id==='web_search'&&r.status==='CONNECTED')?'Anthropic':'not connected')+'.');
+  sysMsg('Ready — build '+((S.cfg.build&&S.cfg.build.sha)||'local')+'. '+S.cfg.agents.filter(a=>a.status==='active').length+' employees active, '+S.projects.length+' projects. Models: '+(av.length?av.map(p=>p.name).join(' → '):'none yet')+'. Search: '+(hasKey('tavily')||S.cfg.registry.find(r=>r.id==='tavily'&&r.status==='CONNECTED')?'Tavily':hasKey('anthropic')||S.cfg.registry.find(r=>r.id==='web_search'&&r.status==='CONNECTED')?'Anthropic':'not connected')+'.');
 }
 async function updateAgent(id,patch){ Object.assign(agent(id),patch); await api('/api/config',{action:'update_agent',id,patch}); }
 async function saveProject(p){ try{ await api('/api/projects',{project:p}); }catch(e){ ev('System','Save failed: '+e.message,'err'); } }
@@ -163,6 +174,7 @@ function renderCenter(){
   if(v.mode==='employee') return w.innerHTML=employeeHTML(v.id), bindEmployee(v.id);
   if(v.mode==='add') return w.innerHTML=addHTML(), bindAdd();
   if(v.mode==='keys') return w.innerHTML=keysHTML(), bindKeys();
+  if(v.mode==='debug') return w.innerHTML=debugHTML(), bindDebug();
   if(v.mode!=='work'||!v.project){
     w.innerHTML=`<div class="empty"><h1 class="disp">What do you need built?</h1><p>The Orchestrator reads the request, checks the Joroots knowledge base, and routes to Research, Marketing and Creative only when needed. The result lands here.</p><p>Try one:</p>
     <button class="ex" data-ex="Create a Joroots social media post explaining how AI orchestration can help SMEs in Jordan.">Create a Joroots social media post explaining how AI orchestration can help SMEs in Jordan.</button>
@@ -278,6 +290,50 @@ function bindKeys(){
     try{ const r=await api('/api/connectors/test',{id,keys:localKeys()}); m.textContent=(r.ok?'Works — ':'Failed — ')+r.message; if(r.ok) $('#banner').style.display='none'; }catch(e){ m.textContent='Failed — '+e.message; } });
 }
 
+// ---- debug
+function debugHTML(){
+  const k=localKeys(); const bld=S.cfg.build||{};
+  const row=(a,b)=>`<dt>${esc(a)}</dt><dd>${b}</dd>`;
+  return `<div class="ws prof"><button class="btn ghost sm" id="back">← Workspace</button>
+  <h1 class="disp" style="margin-top:14px">Debug</h1>
+  <p class="meta">Everything the system actually sees right now. Values are never shown — only whether a key is present.</p>
+  ${envWarnings().map(w=>`<div class="card issue">${w}</div>`).join('')}
+  <section><h2>Build</h2><dl class="kv">
+    ${row('Commit', esc(bld.sha||'unknown'))}
+    ${row('Environment', esc(bld.env||'unknown'))}
+    ${row('This page', esc(location.hostname)+(pinnedDeployment()?' <span class="tag a">FROZEN DEPLOYMENT</span>':' <span class="tag v">LIVE</span>'))}
+    ${row('Live URL', '<a href="'+PROD_URL+'" style="text-decoration:underline">'+PROD_URL+'</a>')}
+  </dl></section>
+  <section><h2>Storage</h2><dl class="kv">
+    ${row('Browser storage', storageOK()?'<span class="tag v">WORKING</span>':'<span class="tag a">BLOCKED — incognito or cookies off</span>')}
+    ${row('Keys in this browser', Object.keys(k).length?esc(Object.keys(k).join(', ')):'none')}
+    ${row('Project memory', S.persistent?'<span class="tag v">Upstash KV</span>':'in-memory only — projects lost on redeploy')}
+  </dl></section>
+  <section><h2>Models</h2><dl class="kv">${S.cfg.providers.map(p=>row(p.name, providerReady(p)?('<span class="tag v">READY</span> '+(p.available?'server env':'browser key')):'<span class="tag">no key</span>')).join('')}</dl>
+  <div class="meta">Fallback order is top to bottom. First ready provider serves the task.</div></section>
+  <section><h2>Connectors</h2><dl class="kv">${S.cfg.registry.filter(r=>r.kind!=='model').map(r=>row(r.name, connReady(r)?'<span class="tag v">READY</span>':'<span class="tag">'+esc(r.missing&&r.missing.length?'needs '+r.missing.join(', '):r.status)+'</span>')).join('')}</dl></section>
+  <section><h2>Self test</h2><p class="meta">Runs a real call against every connector that has a key. Higgsfield generates an image, so allow up to a minute.</p>
+  <div class="row"><button class="btn" id="runtests">Run all tests</button><span class="meta" id="testmsg"></span></div>
+  <div id="testout" style="margin-top:10px"></div></section>
+  <section><h2>Session log (${S.events.length})</h2><div class="activity">${S.events.slice(-40).reverse().map(e=>`<div class="ev ${e.kind}"><span class="who">${new Date(e.t).toLocaleTimeString()} ${esc(e.who)}</span><span class="t">${esc(e.text)}</span></div>`).join('')||'<div class="meta">Nothing yet</div>'}</div></section>
+  </div>`;
+}
+function bindDebug(){
+  $('#back').onclick=()=>{ S.view={mode:S.current?'work':'empty',project:S.current}; renderCenter(); };
+  $('#runtests').onclick=async()=>{
+    const out=$('#testout'), keys=localKeys(); $('#runtests').disabled=true;
+    const ids=S.cfg.registry.filter(r=>connReady(r)&&r.id!=='knowledge'&&r.kind!=='storage').map(r=>r.id);
+    if(!ids.length){ out.innerHTML='<div class="card">No connector has a key yet. Add one in Keys.</div>'; $('#runtests').disabled=false; return; }
+    out.innerHTML=''; $('#testmsg').textContent='Testing '+ids.length+'…';
+    for(const id of ids){
+      const line=document.createElement('div'); line.className='card'; line.textContent=id+': testing…'; out.appendChild(line);
+      try{ const r=await api('/api/connectors/test',{id,keys}); line.innerHTML='<b>'+esc(id)+'</b> '+(r.ok?'<span class="tag v">OK</span>':'<span class="tag a">FAILED</span>')+'<div class="meta">'+esc(r.message)+'</div>'; }
+      catch(e){ line.innerHTML='<b>'+esc(id)+'</b> <span class="tag a">FAILED</span><div class="meta">'+esc(e.message)+'</div>'; }
+    }
+    $('#testmsg').textContent='Done'; $('#runtests').disabled=false;
+  };
+}
+
 // ---- add employee
 function addHTML(){
   return `<div class="ws prof"><button class="btn ghost sm" id="back">← Workspace</button><h1 class="disp" style="margin-top:14px">Add employee</h1><div class="form">
@@ -323,4 +379,5 @@ $('#file').onchange=async e=>{ for(const f of e.target.files){ const b64=await n
 $('#mic').onclick=()=>{ const SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(!SR) return sysMsg('Voice input is not available in this browser.'); try{ const r=new SR(); r.lang='en-US'; r.onresult=e=>{ $('#input').value+=(($('#input').value?' ':'')+e.results[0][0].transcript); }; r.onerror=e=>sysMsg('Voice failed: '+e.error); r.start(); sysMsg('Listening…'); }catch(e){ sysMsg('Voice failed: '+e.message); } };
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{ S.tab=b.dataset.tab; renderRight(); });
 const keysLink=document.getElementById('keyslink'); if(keysLink) keysLink.onclick=e=>{ e.preventDefault(); S.view={mode:'keys'}; renderCenter(); };
+const dbgLink=document.getElementById('debuglink'); if(dbgLink) dbgLink.onclick=e=>{ e.preventDefault(); S.view={mode:'debug'}; renderCenter(); };
 boot();

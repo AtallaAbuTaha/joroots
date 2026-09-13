@@ -3,7 +3,7 @@ import { registryView } from '../../../lib/connectors/registry'; import { knowle
 export const dynamic = 'force-dynamic';
 export async function GET() {
   const agents = (await loadAgents()).map(({ doc, ...a }) => a);
-  return NextResponse.json({ agents, skills: loadSkills(), departments: await loadDepartments(), registry: registryView(), knowledge: knowledgeIndex(), providers: providerStatus(), persistent: persistent() });
+  return NextResponse.json({ build: { sha: (process.env.VERCEL_GIT_COMMIT_SHA || 'local').slice(0, 7), env: process.env.VERCEL_ENV || 'local', deployment: process.env.VERCEL_DEPLOYMENT_ID || null }, agents, skills: loadSkills(), departments: await loadDepartments(), registry: registryView(), knowledge: knowledgeIndex(), providers: providerStatus(), persistent: persistent() });
 }
 export async function POST(req: Request) {
   const b = await req.json();
