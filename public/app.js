@@ -7,8 +7,11 @@ const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&g
 const agent=id=>S.cfg.agents.find(a=>a.id===id);
 const reg=id=>S.cfg.registry.find(r=>r.id===id);
 const KEY_ENV={groq:'GROQ_API_KEY',gemini:'GEMINI_API_KEY',anthropic:'ANTHROPIC_API_KEY',openrouter:'OPENROUTER_API_KEY',mistral:'MISTRAL_API_KEY',deepseek:'DEEPSEEK_API_KEY',openai:'OPENAI_API_KEY',tavily:'TAVILY_API_KEY',higgsfield:'HIGGSFIELD_API_KEY_ID',canva:'CANVA_MCP_TOKEN',slack:'SLACK_MCP_TOKEN',gmail:'GMAIL_MCP_TOKEN',gdrive:'GDRIVE_MCP_TOKEN'};
-function localKeys(){ try{ return JSON.parse(localStorage.getItem('jr-keys')||'{}'); }catch(e){ return {}; } }
-function setLocalKeys(o){ try{ localStorage.setItem('jr-keys',JSON.stringify(o)); }catch(e){} }
+function storageOK(){ try{ localStorage.setItem('jr-probe','1'); localStorage.removeItem('jr-probe'); return true; }catch(e){ return false; } }
+let memKeys={};
+function localKeys(){ try{ return JSON.parse(localStorage.getItem('jr-keys')||'{}'); }catch(e){ return memKeys; } }
+function setLocalKeys(o){ memKeys=o; try{ localStorage.setItem('jr-keys',JSON.stringify(o)); }catch(e){} updateKeysBadge(); }
+function updateKeysBadge(){ const b=document.getElementById('keyslink'); if(!b) return; const n=Object.keys(localKeys()).length; b.textContent=n?'Keys ('+n+')':'Keys'; }
 const hasKey=id=>id==='higgsfield'?!!(localKeys().HIGGSFIELD_API_KEY_ID&&localKeys().HIGGSFIELD_API_KEY_SECRET):!!localKeys()[KEY_ENV[id]];
 const providerReady=p=>p.available||hasKey(p.id);
 const connReady=r=>r.status==='CONNECTED'||hasKey(r.id);
@@ -21,7 +24,7 @@ async function boot(){
   const noModel=!S.cfg.providers.some(providerReady); const b=$('#banner');
   if(noModel){ b.style.display='block'; b.innerHTML='No model connected yet. <b>Press Keys in the top bar</b> and paste a Groq key (free, no card, console.groq.com) — it stays in this browser. For the whole team, add GROQ_API_KEY in Vercel instead.'; }
   else if(!S.persistent){ b.style.display='block'; b.textContent='Running without persistent storage — projects are lost on redeploy. Add KV_REST_API_URL and KV_REST_API_TOKEN (Upstash) to keep them.'; }
-  renderRight(); renderCenter();
+  renderRight(); renderCenter(); updateKeysBadge();
   const av=S.cfg.providers.filter(providerReady);
   sysMsg('Ready. '+S.cfg.agents.filter(a=>a.status==='active').length+' employees active, '+S.projects.length+' projects. Models: '+(av.length?av.map(p=>p.name).join(' → '):'none yet')+'. Search: '+(hasKey('tavily')||S.cfg.registry.find(r=>r.id==='tavily'&&r.status==='CONNECTED')?'Tavily':hasKey('anthropic')||S.cfg.registry.find(r=>r.id==='web_search'&&r.status==='CONNECTED')?'Anthropic':'not connected')+'.');
 }
@@ -223,7 +226,7 @@ function employeeHTML(id){
   </div>
   <section><h2>Activity</h2><div class="activity">${acts.map(e=>`<div class="ev ${e.kind}"><span class="who">${new Date(e.t).toLocaleTimeString()}</span><span class="t">${esc(e.text)}</span></div>`).join('')||'<div class="meta">Nothing yet this session</div>'}</div></section>
   <section><h2>Configuration</h2><div class="form"><label>Model provider</label><select id="prov"><option value="auto" ${!a.model||a.model.provider==='auto'?'selected':''}>Auto — first available, with fallback</option>${S.cfg.providers.map(p=>`<option value="${p.id}" ${a.model&&a.model.provider===p.id?'selected':''} ${providerReady(p)?'':'disabled'}>${esc(p.name)}${providerReady(p)?'':' — no key'}</option>`).join('')}</select>
-  <div class="meta" style="margin-top:4px">Fallback order: ${esc(S.cfg.providers.filter(providerReady).map(p=>p.name).join(' → ')||'none configured')}. Connector tools (Higgsfield, Canva, Gmail, Slack, Drive) need Anthropic.</div>
+  <div class="meta" style="margin-top:4px">Fallback order: ${esc(S.cfg.providers.filter(providerReady).map(p=>p.name).join(' → ')||'none configured')}. Gmail, Slack, Drive and Canva need Anthropic. Higgsfield images do not.</div>
   <label>Instructions</label><textarea id="instr" style="min-height:140px">${esc(a.instructions)}</textarea></div>
   <dl class="kv" style="margin-top:10px"><dt>Permissions</dt><dd>${esc(JSON.stringify(a.permissions||{}))}</dd></dl>
   <div class="row" style="margin-top:10px"><button class="btn" id="saveinstr">Save configuration</button><span class="meta" id="savedmsg"></span></div></section></div>`;
@@ -244,11 +247,12 @@ function openProject(id){ const p=S.projects.find(x=>x.id===id); if(!p) return; 
 // ---- keys (browser-local)
 function keysHTML(){
   const k=localKeys(); const mask=v=>v?v.slice(0,6)+'…'+v.slice(-4):'';
-  const rows=[['groq','Groq — free, no card, start here','console.groq.com'],['tavily','Tavily — web search for Research, 1,000/month free','tavily.com'],['higgsfield_id','Higgsfield key ID — image generation','cloud.higgsfield.ai'],['higgsfield_secret','Higgsfield key secret','cloud.higgsfield.ai'],['gemini','Google Gemini — free tier trains on your inputs; use a billing-enabled key for client work','aistudio.google.com'],['anthropic','Anthropic — needed for image generation and the Gmail/Slack/Drive/Canva buttons','console.anthropic.com'],['openrouter','OpenRouter — fallback','openrouter.ai'],['mistral','Mistral — EU hosting','console.mistral.ai']];
+  const rows=[['groq','Groq — free, no card, start here','console.groq.com'],['tavily','Tavily — web search for Research, 1,000/month free','tavily.com'],['higgsfield_id','Higgsfield key ID — image generation','cloud.higgsfield.ai'],['higgsfield_secret','Higgsfield key secret','cloud.higgsfield.ai'],['gemini','Google Gemini — free tier trains on your inputs; use a billing-enabled key for client work','aistudio.google.com'],['anthropic','Anthropic — only for the Gmail/Slack/Drive/Canva share buttons','console.anthropic.com'],['openrouter','OpenRouter — fallback','openrouter.ai'],['mistral','Mistral — EU hosting','console.mistral.ai']];
   const ENV={...KEY_ENV,higgsfield_id:'HIGGSFIELD_API_KEY_ID',higgsfield_secret:'HIGGSFIELD_API_KEY_SECRET'};
   return `<div class="ws prof"><button class="btn ghost sm" id="back">← Workspace</button>
   <h1 class="disp" style="margin-top:14px">Keys</h1>
-  <p class="meta">Pasted here, a key is saved in this browser only and sent with your own requests. It is never written to the repo and never stored on the server. Good for testing on your own machine. For the team, or for anything permanent, put the same key in Vercel → Settings → Environment Variables instead — then you can clear it here.</p>
+  ${storageOK()?'':'<p class="meta" style="color:#A32B12">This browser is blocking local storage (private window, or cookies disabled). Keys will work for this session but disappear when you close the tab. Use Vercel environment variables for anything lasting.</p>'}
+  <p class="meta">Keys save automatically as you type — you can leave this page and come back. Saved in this browser only and sent with your own requests. It is never written to the repo and never stored on the server. Good for testing on your own machine. For the team, or for anything permanent, put the same key in Vercel → Settings → Environment Variables instead — then you can clear it here.</p>
   <div class="form">${rows.map(([id,label,where])=>`<label>${esc(label)} <span class="meta">· ${esc(where)}</span></label>
     <div class="row"><input id="k-${id}" type="password" placeholder="${esc(ENV[id])}" value="${esc(k[ENV[id]]||'')}" style="flex:1">
     ${id==='higgsfield_secret'?'<button class="btn ghost sm" data-test="higgsfield">Test</button>':id==='higgsfield_id'?'':`<button class="btn ghost sm" data-test="${id}">Test</button>`}</div>
@@ -260,8 +264,16 @@ function bindKeys(){
   const ids=['groq','tavily','higgsfield_id','higgsfield_secret','gemini','anthropic','openrouter','mistral'];
   $('#back').onclick=()=>{ S.view={mode:S.current?'work':'empty',project:S.current}; renderCenter(); };
   const collect=()=>{ const o=localKeys(); ids.forEach(id=>{ const el=$('#k-'+id); if(!el) return; const v=el.value.trim(); if(v) o[ENV[id]]=v; else delete o[ENV[id]]; }); return o; };
+  // Auto-save on every keystroke (debounced) so a key can never be lost by navigating away.
+  let t=null;
+  ids.forEach(id=>{ const el=$('#k-'+id); if(!el) return;
+    const persist=()=>{ setLocalKeys(collect()); const m=$('#m-'+id); if(m&&el.value.trim()) m.textContent='saved in this browser'; else if(m) m.textContent=''; $('#kmsg').textContent='Saved'; if(Object.keys(localKeys()).length) $('#banner').style.display='none'; };
+    el.addEventListener('input',()=>{ clearTimeout(t); t=setTimeout(persist,400); });
+    el.addEventListener('blur',persist);
+    el.addEventListener('paste',()=>setTimeout(persist,50));
+  });
   $('#ksave').onclick=()=>{ setLocalKeys(collect()); $('#kmsg').textContent='Saved in this browser'; $('#banner').style.display='none'; renderRight(); };
-  $('#kclear').onclick=()=>{ setLocalKeys({}); renderCenter(); renderRight(); };
+  $('#kclear').onclick=()=>{ if(!confirm('Remove all keys from this browser?')) return; setLocalKeys({}); renderCenter(); renderRight(); };
   w.querySelectorAll('[data-test]').forEach(b=>b.onclick=async()=>{ const id=b.dataset.test, m=$('#m-'+(id==='higgsfield'?'higgsfield_secret':id)); m.textContent=id==='higgsfield'?'Generating a test image, up to 40s…':'Testing…'; setLocalKeys(collect());
     try{ const r=await api('/api/connectors/test',{id,keys:localKeys()}); m.textContent=(r.ok?'Works — ':'Failed — ')+r.message; if(r.ok) $('#banner').style.display='none'; }catch(e){ m.textContent='Failed — '+e.message; } });
 }
