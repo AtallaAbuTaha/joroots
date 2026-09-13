@@ -1,4 +1,4 @@
-import { loadAgents, loadSkills } from './loader'; import { retrieve } from '../knowledge/loader';
+import { loadAgents, loadSkills } from './loader'; import { retrieve } from '../knowledge/loader'; import { knowledgeRepo } from '../knowledge/custom';
 import { resolveChain } from '../providers'; import { ContentBlock, isRetryable } from '../providers/types';
 import { mcpServersFor, isConnectedWith } from '../connectors/registry'; import { logsRepo } from '../repo/store';
 import { tavilyReady, tavilySearch, evidenceBlock } from '../search';
@@ -9,7 +9,7 @@ export async function runTask(t: TaskContract) {
   if (a.status !== 'active') throw new Error(a.name + ' is paused');
   const skills = loadSkills(); const use = (t.required_skills?.length ? t.required_skills : a.skills).filter(s => a.skills.includes(s) && skills[s]);
   const inputText = t.input.filter((b: any) => b.type === 'text').map((b: any) => b.text).join(' ');
-  const kn = retrieve(a.knowledge, t.objective + ' ' + (t.context || '') + ' ' + inputText);
+  const kn = retrieve(a.knowledge, t.objective + ' ' + (t.context || '') + ' ' + inputText, 6, await knowledgeRepo.list());
   const events: any[] = []; const sources: { url: string; title: string }[] = []; const unavailable: string[] = [];
   // least privilege: tool must be granted to the agent AND allowed by the task AND actually connected
   const allowed = (id: string) => a.tools.includes(id) && (!t.allowed_tools || t.allowed_tools.includes(id));

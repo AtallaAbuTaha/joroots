@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server'; import { loadAgents, loadSkills, loadDepartments, saveAgentOverride, addCustomAgent } from '../../../lib/agents/loader';
 import { registryView } from '../../../lib/connectors/registry'; import { knowledgeIndex } from '../../../lib/knowledge/loader'; import { providerStatus } from '../../../lib/providers'; import { persistent } from '../../../lib/repo/store';
 import { serverKeyNames, canStoreServerKeys } from '../../../lib/keys';
+import { knowledgeRepo } from '../../../lib/knowledge/custom';
 export const dynamic = 'force-dynamic';
 export async function GET() {
   const agents = (await loadAgents()).map(({ doc, ...a }) => a);
-  return NextResponse.json({ build: { sha: (process.env.VERCEL_GIT_COMMIT_SHA || 'local').slice(0, 7), env: process.env.VERCEL_ENV || 'local', deployment: process.env.VERCEL_DEPLOYMENT_ID || null }, agents, skills: loadSkills(), departments: await loadDepartments(), registry: registryView(), knowledge: knowledgeIndex(), providers: providerStatus(), persistent: persistent(), serverKeys: await serverKeyNames(), serverKeyStorage: canStoreServerKeys() });
+  return NextResponse.json({ build: { sha: (process.env.VERCEL_GIT_COMMIT_SHA || 'local').slice(0, 7), env: process.env.VERCEL_ENV || 'local', deployment: process.env.VERCEL_DEPLOYMENT_ID || null }, agents, skills: loadSkills(), departments: await loadDepartments(), registry: registryView(), knowledge: knowledgeIndex(await knowledgeRepo.list()), providers: providerStatus(), persistent: persistent(), serverKeys: await serverKeyNames(), serverKeyStorage: canStoreServerKeys() });
 }
 export async function POST(req: Request) {
   const b = await req.json();

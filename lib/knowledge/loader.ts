@@ -12,12 +12,12 @@ export function allKnowledge(): KnowledgeItem[] {
   return (cache = out);
 }
 // Retrieval: category allowlist from the agent + keyword/tag scoring from the task. Voice rules always included.
-export function retrieve(categories: string[], query: string, limit = 6): KnowledgeItem[] {
-  const words = (query.toLowerCase().match(/[a-z][a-z0-9-]{2,}/g) || []); const items = allKnowledge();
+export function retrieve(categories: string[], query: string, limit = 6, extra: KnowledgeItem[] = []): KnowledgeItem[] {
+  const words = (query.toLowerCase().match(/[a-z][a-z0-9-]{2,}/g) || []); const items = allKnowledge().concat(extra);
   const scored = items.filter(k => categories.includes(k.category) || k.id === 'brand/voice').map(k => {
     const hay = (k.title + ' ' + k.tags.join(' ') + ' ' + k.body.slice(0, 600)).toLowerCase();
     let s = k.id === 'brand/voice' ? 100 : k.category === 'company' ? 3 : 0; words.forEach(w => { if (k.tags.includes(w)) s += 4; if (hay.includes(w)) s += 1; }); return { k, s };
   }).sort((a, b) => b.s - a.s);
   return scored.slice(0, limit).map(x => x.k);
 }
-export const knowledgeIndex = () => allKnowledge().map(({ body, ...m }) => ({ ...m, chars: body.length }));
+export const knowledgeIndex = (extra: KnowledgeItem[] = []) => allKnowledge().concat(extra).map(({ body, ...m }) => ({ ...m, chars: body.length }));

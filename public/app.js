@@ -38,6 +38,11 @@ async function boot(){
   else if(noModel){ b.style.display='block'; b.innerHTML='No model connected yet. <b>Press Keys in the top bar</b> and paste a Groq key (free, no card, console.groq.com) — it stays in this browser. For the whole team, add GROQ_API_KEY in Vercel instead.'; }
   else if(!S.persistent){ b.style.display='block'; b.textContent='Running without persistent storage — projects are lost on redeploy. Add KV_REST_API_URL and KV_REST_API_TOKEN (Upstash) to keep them.'; }
   renderRight(); renderCenter(); updateKeysBadge();
+  const q=new URLSearchParams(location.search);
+  if(q.get('keys')) S.view={mode:'keys'}; else if(q.get('debug')) S.view={mode:'debug'}; else if(q.get('add')) S.view={mode:'add'};
+  else if(q.get('agent')&&agent(q.get('agent'))) S.view={mode:'employee',id:q.get('agent')};
+  else if(q.get('project')){ const p=S.projects.find(x=>x.id===q.get('project')); if(p){ S.current=p; S.view={mode:'work',project:p}; } }
+  if(q.toString()) renderCenter();
   const av=S.cfg.providers.filter(providerReady);
   sysMsg('Ready — build '+((S.cfg.build&&S.cfg.build.sha)||'local')+'. '+S.cfg.agents.filter(a=>a.status==='active').length+' employees active, '+S.projects.length+' projects. Models: '+(av.length?av.map(p=>p.name).join(' → '):'none yet')+'. Search: '+(hasKey('tavily')||S.cfg.registry.find(r=>r.id==='tavily'&&r.status==='CONNECTED')?'Tavily':hasKey('anthropic')||S.cfg.registry.find(r=>r.id==='web_search'&&r.status==='CONNECTED')?'Anthropic':'NOT CONNECTED — the Research Agent cannot cite sources')+'.');
 }
