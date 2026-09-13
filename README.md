@@ -57,6 +57,12 @@ Model IDs are overridable per provider (`GROQ_MODEL`, `GEMINI_MODEL`, …) becau
 
 Missing credentials never break the app: the connector shows `MISSING_CREDENTIALS`, the agent delivers what it can and names the missing connector.
 
+## Where keys live
+
+Three places, in this precedence at call time: **browser key** (Keys panel, only you, instant) → **server key** (encrypted in KV, applies to every agent and user, no redeploy) → **environment variable** (permanent, needs a redeploy).
+
+Server-side key storage requires Upstash KV plus a secret to encrypt with (`APP_SECRET`, or the KV token is used). Keys are encrypted with AES-256-GCM; nothing is stored in plaintext, and a corrupt or wrongly-keyed blob is treated as unset rather than crashing a task. `/api/keys` is protected by Vercel Authentication, and additionally by `APP_PASSWORD` if you set one.
+
 ## Security
 Secrets are server-only; the browser never receives keys or tokens. Tools are allowlisted per agent and per task. Logs record provider, latency, tool names and token usage — never secrets.
 

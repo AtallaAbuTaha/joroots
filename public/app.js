@@ -12,7 +12,9 @@ let memKeys={};
 function localKeys(){ try{ return JSON.parse(localStorage.getItem('jr-keys')||'{}'); }catch(e){ return memKeys; } }
 function setLocalKeys(o){ memKeys=o; try{ localStorage.setItem('jr-keys',JSON.stringify(o)); }catch(e){} updateKeysBadge(); }
 function updateKeysBadge(){ const b=document.getElementById('keyslink'); if(!b) return; const n=Object.keys(localKeys()).length; b.textContent=n?'Keys ('+n+')':'Keys'; }
-const hasKey=id=>id==='higgsfield'?!!(localKeys().HIGGSFIELD_API_KEY_ID&&localKeys().HIGGSFIELD_API_KEY_SECRET):!!localKeys()[KEY_ENV[id]];
+const serverHas=n=>!!(S.cfg&&S.cfg.serverKeys&&S.cfg.serverKeys.includes(n));
+const keyPresent=n=>!!localKeys()[n]||serverHas(n);
+const hasKey=id=>id==='higgsfield'?(keyPresent('HIGGSFIELD_API_KEY_ID')&&keyPresent('HIGGSFIELD_API_KEY_SECRET')):keyPresent(KEY_ENV[id]);
 const providerReady=p=>p.available||hasKey(p.id);
 const connReady=r=>r.status==='CONNECTED'||hasKey(r.id);
 const api=async(url,body)=>{ const r=await fetch(url,body?{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)}:undefined); const d=await r.json(); if(!r.ok||d.error) throw new Error(d.error||('HTTP '+r.status)); return d; };
@@ -37,7 +39,7 @@ async function boot(){
   else if(!S.persistent){ b.style.display='block'; b.textContent='Running without persistent storage — projects are lost on redeploy. Add KV_REST_API_URL and KV_REST_API_TOKEN (Upstash) to keep them.'; }
   renderRight(); renderCenter(); updateKeysBadge();
   const av=S.cfg.providers.filter(providerReady);
-  sysMsg('Ready — build '+((S.cfg.build&&S.cfg.build.sha)||'local')+'. '+S.cfg.agents.filter(a=>a.status==='active').length+' employees active, '+S.projects.length+' projects. Models: '+(av.length?av.map(p=>p.name).join(' → '):'none yet')+'. Search: '+(hasKey('tavily')||S.cfg.registry.find(r=>r.id==='tavily'&&r.status==='CONNECTED')?'Tavily':hasKey('anthropic')||S.cfg.registry.find(r=>r.id==='web_search'&&r.status==='CONNECTED')?'Anthropic':'not connected')+'.');
+  sysMsg('Ready — build '+((S.cfg.build&&S.cfg.build.sha)||'local')+'. '+S.cfg.agents.filter(a=>a.status==='active').length+' employees active, '+S.projects.length+' projects. Models: '+(av.length?av.map(p=>p.name).join(' → '):'none yet')+'. Search: '+(hasKey('tavily')||S.cfg.registry.find(r=>r.id==='tavily'&&r.status==='CONNECTED')?'Tavily':hasKey('anthropic')||S.cfg.registry.find(r=>r.id==='web_search'&&r.status==='CONNECTED')?'Anthropic':'NOT CONNECTED — the Research Agent cannot cite sources')+'.');
 }
 async function updateAgent(id,patch){ Object.assign(agent(id),patch); await api('/api/config',{action:'update_agent',id,patch}); }
 async function saveProject(p){ try{ await api('/api/projects',{project:p}); }catch(e){ ev('System','Save failed: '+e.message,'err'); } }
@@ -264,12 +266,19 @@ function keysHTML(){
   return `<div class="ws prof"><button class="btn ghost sm" id="back">← Workspace</button>
   <h1 class="disp" style="margin-top:14px">Keys</h1>
   ${storageOK()?'':'<p class="meta" style="color:#A32B12">This browser is blocking local storage (private window, or cookies disabled). Keys will work for this session but disappear when you close the tab. Use Vercel environment variables for anything lasting.</p>'}
+  <div class="card"><h3>Where a key lives</h3><div class="meta">
+    <b>This browser</b> — instant, only you, gone if you clear site data.<br>
+    <b>The server</b> — applies to every agent and everyone using the app, no redeploy. ${S.cfg.serverKeyStorage?'<span class="tag v">AVAILABLE</span> Press “Send to server” on any key.':'<span class="tag a">NOT AVAILABLE</span> Needs Upstash KV: add KV_REST_API_URL and KV_REST_API_TOKEN in Vercel, then redeploy. Free tier is enough.'}<br>
+    <b>Vercel environment variables</b> — permanent, survives everything, needs a redeploy.<br>
+    At request time: browser key wins, then server key, then environment variable.</div></div>
   <p class="meta">Keys save automatically as you type — you can leave this page and come back. Saved in this browser only and sent with your own requests. It is never written to the repo and never stored on the server. Good for testing on your own machine. For the team, or for anything permanent, put the same key in Vercel → Settings → Environment Variables instead — then you can clear it here.</p>
   <div class="form">${rows.map(([id,label,where])=>`<label>${esc(label)} <span class="meta">· ${esc(where)}</span></label>
     <div class="row"><input id="k-${id}" type="password" placeholder="${esc(ENV[id])}" value="${esc(k[ENV[id]]||'')}" style="flex:1">
     ${id==='higgsfield_secret'?'<button class="btn ghost sm" data-test="higgsfield">Test</button>':id==='higgsfield_id'?'':`<button class="btn ghost sm" data-test="${id}">Test</button>`}</div>
-    <div class="meta" id="m-${id}">${k[ENV[id]]?'saved in this browser · '+esc(mask(k[ENV[id]])):''}</div>`).join('')}
-  <div class="row" style="margin-top:16px"><button class="btn" id="ksave">Save keys</button><button class="btn ghost" id="kclear">Clear all</button><span class="meta" id="kmsg"></span></div></div></div>`;
+    <div class="meta" id="m-${id}">${k[ENV[id]]?'in this browser · '+esc(mask(k[ENV[id]])):''}${serverHas(ENV[id])?' <span class="tag v">ON SERVER</span>':''}</div>`).join('')}
+  <div class="row" style="margin-top:16px"><button class="btn" id="ksave">Save in browser</button>
+  <button class="btn verm" id="kserver" ${S.cfg.serverKeyStorage?'':'disabled title="Needs Upstash KV"'}>Send all to server</button>
+  <button class="btn ghost" id="kclear">Clear browser keys</button><span class="meta" id="kmsg"></span></div></div></div>`;
 }
 function bindKeys(){
   const w=$('#ws'); const ENV={...KEY_ENV,higgsfield_id:'HIGGSFIELD_API_KEY_ID',higgsfield_secret:'HIGGSFIELD_API_KEY_SECRET'};
@@ -285,7 +294,12 @@ function bindKeys(){
     el.addEventListener('paste',()=>setTimeout(persist,50));
   });
   $('#ksave').onclick=()=>{ setLocalKeys(collect()); $('#kmsg').textContent='Saved in this browser'; $('#banner').style.display='none'; renderRight(); };
-  $('#kclear').onclick=()=>{ if(!confirm('Remove all keys from this browser?')) return; setLocalKeys({}); renderCenter(); renderRight(); };
+  $('#kclear').onclick=()=>{ if(!confirm('Remove all keys from this browser? Keys already sent to the server stay there.')) return; setLocalKeys({}); renderCenter(); renderRight(); };
+  const sv=$('#kserver'); if(sv) sv.onclick=async()=>{ setLocalKeys(collect()); const keys=localKeys();
+    if(!Object.keys(keys).length) return $('#kmsg').textContent='Nothing to send — paste a key first';
+    sv.disabled=true; $('#kmsg').textContent='Sending to server…';
+    try{ const r=await api('/api/keys',{keys}); await loadCfg(); $('#kmsg').textContent='On server now: '+r.names.join(', ')+' — these apply to every agent and every user.'; renderCenter(); renderRight(); }
+    catch(e){ $('#kmsg').textContent='Failed: '+e.message; sv.disabled=false; } };
   w.querySelectorAll('[data-test]').forEach(b=>b.onclick=async()=>{ const id=b.dataset.test, m=$('#m-'+(id==='higgsfield'?'higgsfield_secret':id)); m.textContent=id==='higgsfield'?'Generating a test image, up to 40s…':'Testing…'; setLocalKeys(collect());
     try{ const r=await api('/api/connectors/test',{id,keys:localKeys()}); m.textContent=(r.ok?'Works — ':'Failed — ')+r.message; if(r.ok) $('#banner').style.display='none'; }catch(e){ m.textContent='Failed — '+e.message; } });
 }
@@ -307,6 +321,7 @@ function debugHTML(){
   <section><h2>Storage</h2><dl class="kv">
     ${row('Browser storage', storageOK()?'<span class="tag v">WORKING</span>':'<span class="tag a">BLOCKED — incognito or cookies off</span>')}
     ${row('Keys in this browser', Object.keys(k).length?esc(Object.keys(k).join(', ')):'none')}
+    ${row('Keys on the server', (S.cfg.serverKeys&&S.cfg.serverKeys.length)?esc(S.cfg.serverKeys.join(', ')):(S.cfg.serverKeyStorage?'none yet — use “Send all to server” in Keys':'storage not configured (needs Upstash KV)'))}
     ${row('Project memory', S.persistent?'<span class="tag v">Upstash KV</span>':'in-memory only — projects lost on redeploy')}
   </dl></section>
   <section><h2>Models</h2><dl class="kv">${S.cfg.providers.map(p=>row(p.name, providerReady(p)?('<span class="tag v">READY</span> '+(p.available?'server env':'browser key')):'<span class="tag">no key</span>')).join('')}</dl>
